@@ -45,6 +45,7 @@ if (hasWindow) {
   Object.defineProperty(window, 'localStorage', {
     value: localStorageMock,
   });
+  window.scrollTo = () => undefined;
 }
 
 afterEach(() => {

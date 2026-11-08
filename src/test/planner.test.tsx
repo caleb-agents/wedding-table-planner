@@ -222,6 +222,21 @@ describe('group planner', () => {
     expect(within(fullPanel).getByRole('button', { name: 'Add Ada Fictional to Group 1' })).toHaveProperty('disabled', true);
   });
 
+  it('locks the page while a table is open and restores it when the panel closes', async () => {
+    const user = userEvent.setup();
+    seed(plan());
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
+    expect(document.body.style.position).toBe('fixed');
+    expect(document.documentElement.style.getPropertyValue('--vv-height')).not.toBe('');
+    const panel = screen.getByRole('dialog', { name: 'Group 1' });
+    expect(panel.querySelectorAll('.sheet-scroll').length).toBe(1);
+    expect(panel.querySelector('.member-well')?.getAttribute('style') ?? '').not.toMatch(/overflow/i);
+    await user.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(document.body.style.position).toBe('');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('opens the published names without an import', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'Wedding group planner' })).toBeTruthy();

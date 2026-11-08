@@ -23,6 +23,41 @@ import './styles/app.css';
 
 type Chooser = { guestId: string; mode: 'assign' | 'move' };
 
+function useDialogScroll(open: boolean) {
+  useEffect(() => {
+    if (!open) return;
+    const y = window.scrollY;
+    const body = document.body;
+    const previous = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+    };
+    body.style.position = 'fixed';
+    body.style.top = `-${y}px`;
+    body.style.width = '100%';
+    const root = document.documentElement;
+    const apply = () => {
+      const viewport = window.visualViewport;
+      root.style.setProperty('--vv-offset', `${viewport?.offsetTop ?? 0}px`);
+      root.style.setProperty('--vv-height', `${viewport?.height ?? window.innerHeight}px`);
+    };
+    apply();
+    window.visualViewport?.addEventListener('resize', apply);
+    window.visualViewport?.addEventListener('scroll', apply);
+    return () => {
+      window.visualViewport?.removeEventListener('resize', apply);
+      window.visualViewport?.removeEventListener('scroll', apply);
+      root.style.removeProperty('--vv-offset');
+      root.style.removeProperty('--vv-height');
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.width = previous.width;
+      window.scrollTo(0, y);
+    };
+  }, [open]);
+}
+
 export default function App() {
   if (import.meta.env.VITE_CONVEX_URL) {
     return (
@@ -76,6 +111,19 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
   const [offerImport, setOfferImport] = useState(false);
   const [importDismissed, setImportDismissed] = useState(false);
   const [keptLocalNote, setKeptLocalNote] = useState(false);
+  const dialogOpen = Boolean(openGroupId || chooser || pending);
+  useDialogScroll(dialogOpen);
+
+  useEffect(() => {
+    if (!openGroupId && !chooser) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (chooser) setChooser(null);
+      else setOpenGroupId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openGroupId, chooser]);
 
   useEffect(() => {
     if (!sync?.remote || sync.remote.groups.length === 0) return;
@@ -551,9 +599,27 @@ function GroupPanel({
 }) {
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [raised, setRaised] = useState(false);
   useEffect(() => {
-    searchRef.current?.focus();
+    searchRef.current?.focus({ preventScroll: true });
   }, []);
+
+  function onSearch(value: string) {
+    setQuery(value);
+    requestAnimationFrame(() => {
+      const list = listRef.current;
+      const results = resultsRef.current;
+      if (!list || !results) return;
+      if (!value.trim()) {
+        list.scrollTop = 0;
+        return;
+      }
+      const top = results.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      list.scrollTop = Math.max(0, top - 8);
+    });
+  }
   const members = guestsInGroup(guests, group.id);
   const count = members.length;
   const full = isGroupFull(count);
@@ -567,7 +633,13 @@ function GroupPanel({
   const seatedElsewhere = needle ? others.filter(guest => guest.tableId !== null) : [];
 
   return (
-    <div className="overlay" onClick={onClose}>
+    <div
+      className="overlay"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) event.preventDefault();
+      }}
+      onClick={onClose}
+    >
       <div
         className="sheet group-panel"
         role="dialog"
@@ -575,17 +647,33 @@ function GroupPanel({
         aria-labelledby="group-panel-title"
         onClick={event => event.stopPropagation()}
       >
-        <div className="panel-head">
-          <h2 id="group-panel-title">{group.name}</h2>
-          <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        <div className={`sheet-bar${raised ? ' is-raised' : ''}`}>
+          <div className="panel-head">
+            <h2 id="group-panel-title">{group.name}</h2>
+            <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
+            <button type="button" className="quiet" onClick={onClose}>Close</button>
+          </div>
+          {full && !over && <p className="full-note">This group is full.</p>}
+          {over && (
+            <p className="over" role="alert">
+              {count} people in a group of {GROUP_CAPACITY}. Remove {count - GROUP_CAPACITY} before adding anyone else.
+            </p>
+          )}
+          <input
+            ref={searchRef}
+            className="search"
+            type="search"
+            value={query}
+            placeholder="Search names to add"
+            aria-label={`Search names to add to ${group.name}`}
+            onChange={event => onSearch(event.target.value)}
+          />
         </div>
-        {full && !over && <p className="full-note">This group is full.</p>}
-        {over && (
-          <p className="over" role="alert">
-            {count} people in a group of {GROUP_CAPACITY}. Remove {count - GROUP_CAPACITY} before adding anyone else.
-          </p>
-        )}
+        <div
+          className="sheet-scroll"
+          ref={listRef}
+          onScroll={event => setRaised(event.currentTarget.scrollTop > 0)}
+        >
         <h3 className="panel-label">In this group</h3>
         {members.length === 0 ? (
           <p className="empty">No one yet.</p>
@@ -600,16 +688,7 @@ function GroupPanel({
             ))}
           </ul>
         )}
-        <input
-          ref={searchRef}
-          className="search"
-          type="search"
-          value={query}
-          placeholder="Search names to add"
-          aria-label={`Search names to add to ${group.name}`}
-          onChange={event => setQuery(event.target.value)}
-        />
-        <div className="panel-results">
+        <div className="panel-results" ref={resultsRef}>
           {unassigned.length === 0 && seatedElsewhere.length === 0 ? (
             <p className="empty">{needle ? 'No names match that search.' : 'Everyone else is already in a group.'}</p>
           ) : (
@@ -660,6 +739,7 @@ function GroupPanel({
               </ul>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>
