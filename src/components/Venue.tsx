@@ -11,6 +11,7 @@ interface VenueProps {
   canAssignGroup: WeddingStateReturn['canAssignGroup'];
   onEditTable: (tableId: string) => void;
   onCapacityWarning: (message: string) => void;
+  onInspectTable?: (tableId: string) => void;
 }
 
 export function Venue({
@@ -22,8 +23,13 @@ export function Venue({
   canAssignGroup,
   onEditTable,
   onCapacityWarning,
+  onInspectTable,
 }: VenueProps) {
   const handleTableClick = useCallback((tableId: string) => {
+    if (onInspectTable) {
+      onInspectTable(tableId);
+      return;
+    }
     if (state.selectedGuestId) {
       if (canAssignGuest(state.selectedGuestId, tableId)) {
         dispatch({ type: 'ASSIGN_GUEST', guestId: state.selectedGuestId, tableId });
@@ -37,7 +43,7 @@ export function Venue({
         tableId: state.selectedTableId === tableId ? null : tableId 
       });
     }
-  }, [state.selectedGuestId, state.selectedTableId, state.data.tables, canAssignGuest, dispatch, onCapacityWarning]);
+  }, [onInspectTable, state.selectedGuestId, state.selectedTableId, state.data.tables, canAssignGuest, dispatch, onCapacityWarning]);
   
   const handleGuestRemove = useCallback((guestId: string) => {
     dispatch({ type: 'UNASSIGN_GUEST', guestId });
@@ -126,6 +132,8 @@ export function Venue({
           onClick={() => handleTableClick(table.id)}
           onEdit={() => onEditTable(table.id)}
           onMove={(x, y) => dispatch({ type: 'UPDATE_TABLE', tableId: table.id, updates: { x, y } })}
+          dragEnabled={!onInspectTable}
+          guestsInteractive={!onInspectTable}
           onGuestRemove={handleGuestRemove}
           onDrop={(e) => handleDrop(e, table.id)}
           onDragOver={handleDragOver}

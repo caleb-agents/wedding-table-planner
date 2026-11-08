@@ -2,8 +2,8 @@ import type { WeddingData } from '../types';
 import { validateWeddingData } from './validation';
 import { createSampleWedding } from '../data/sampleData';
 
-const STORAGE_KEY = 'wedding_table_planner_data';
-const STORAGE_VERSION = 1;
+export const STORAGE_KEY = 'wedding_table_planner_data';
+export const STORAGE_VERSION = 1;
 
 interface StorageWrapper {
   version: number;

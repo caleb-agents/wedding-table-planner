@@ -88,6 +88,10 @@ CSV import is also supported with columns: `name`, `side`, `rsvp`, `isChild`, `f
 
 ### Seating Guests
 
+On a phone, use the Guests, Tables, and Venue tabs. Tap a guest to open the table list and seat or move them in one tap, or tap Unseat. Tap a table to see who is sitting there and add several guests at once. The venue is an overview.
+
+On a larger screen:
+
 1. **Click & Click**: Select a guest chip, then click a table
 2. **Drag & Drop**: Drag guests directly to tables
 3. **Family Groups**: Drag the family header to seat everyone together

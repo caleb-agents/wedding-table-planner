@@ -11,6 +11,8 @@ interface TableProps {
   onClick: () => void;
   onEdit: () => void;
   onMove: (x: number, y: number) => void;
+  dragEnabled?: boolean;
+  guestsInteractive?: boolean;
   onGuestRemove: (guestId: string) => void;
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -26,6 +28,8 @@ export function TableComponent({
   onClick,
   onEdit,
   onMove,
+  dragEnabled = true,
+  guestsInteractive = true,
   onGuestRemove,
   onDrop,
   onDragOver,
@@ -73,7 +77,7 @@ export function TableComponent({
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 || hasSelectedGuest) return;
+    if (!dragEnabled || e.button !== 0 || hasSelectedGuest) return;
     if ((e.target as HTMLElement).closest('.mini-guest')) return;
     dragStart.current = { px: e.clientX, py: e.clientY, moved: false };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -150,19 +154,19 @@ export function TableComponent({
           {guests.slice(0, 10).map(guest => (
             <div
               key={guest.id}
-              className={`mini-guest ${guest.rsvp}`}
-              title={`${guest.name} - Click to unseat`}
-              onClick={(e) => handleGuestClick(e, guest.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
+              className={`mini-guest ${guest.rsvp} ${guestsInteractive ? '' : 'is-static'}`}
+              title={guest.name}
+              onClick={guestsInteractive ? (e) => handleGuestClick(e, guest.id) : undefined}
+              role={guestsInteractive ? 'button' : undefined}
+              tabIndex={guestsInteractive ? 0 : undefined}
+              onKeyDown={guestsInteractive ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   e.stopPropagation();
                   onGuestRemove(guest.id);
                 }
-              }}
-              aria-label={`Remove ${guest.name} from table`}
+              } : undefined}
+              aria-label={guestsInteractive ? `Remove ${guest.name} from table` : undefined}
             />
           ))}
           {guests.length > 10 && (

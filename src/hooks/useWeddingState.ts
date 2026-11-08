@@ -38,6 +38,38 @@ function reducer(state: AppState, action: ActionType): AppState {
         selectedGuestId: null,
       };
     }
+
+    case 'ASSIGN_GUESTS': {
+      const table = state.data.tables.find(item => item.id === action.tableId);
+      if (!table) return state;
+      const uniqueIds = [...new Set(action.guestIds)];
+      const guestsToMove = uniqueIds.filter(guestId => {
+        const guest = state.data.guests.find(item => item.id === guestId);
+        return guest !== undefined && guest.tableId !== table.id;
+      });
+      const alreadySeated = state.data.guests.filter(guest => guest.tableId === table.id).length;
+      if (guestsToMove.length === 0 || alreadySeated + guestsToMove.length > table.capacity) {
+        return state;
+      }
+
+      const newData = cloneData(state.data);
+      for (const guestId of uniqueIds) {
+        const guest = newData.guests.find(item => item.id === guestId);
+        if (!guest) continue;
+        newData.assignments = newData.assignments.filter(item => item.guestId !== guestId);
+        newData.assignments.push({ guestId, tableId: table.id });
+        guest.tableId = table.id;
+      }
+      newData.lastModified = Date.now();
+
+      return {
+        ...state,
+        data: newData,
+        undoStack: [...state.undoStack.slice(-MAX_UNDO_STACK + 1), state.data],
+        redoStack: [],
+        selectedGuestId: null,
+      };
+    }
     
     case 'UNASSIGN_GUEST': {
       const { guestId } = action;
@@ -328,33 +360,29 @@ export function useWeddingState() {
     };
   }, [state.data]);
   
+  const guestMatchesFilters = useCallback((guest: Guest, requireUnseated: boolean) => {
+    if (requireUnseated && guest.tableId !== null) return false;
+    if (state.searchQuery) {
+      const query = state.searchQuery.toLowerCase();
+      if (!guest.name.toLowerCase().includes(query) &&
+          !guest.familyGroup?.toLowerCase().includes(query) &&
+          !guest.sheetBlock.toLowerCase().includes(query)) {
+        return false;
+      }
+    }
+    if (state.filterRsvp !== 'all' && guest.rsvp !== state.filterRsvp) return false;
+    if (state.filterSide !== 'all' && guest.side !== state.filterSide) return false;
+    if (state.showChildrenOnly && !guest.isChild) return false;
+    return true;
+  }, [state.searchQuery, state.filterRsvp, state.filterSide, state.showChildrenOnly]);
+
+  const filteredGuests = useMemo(() => {
+    return state.data.guests.filter(guest => guestMatchesFilters(guest, false));
+  }, [state.data.guests, guestMatchesFilters]);
+
   const filteredUnseatedGuests = useMemo(() => {
-    return state.data.guests.filter(guest => {
-      if (guest.tableId !== null) return false;
-      
-      if (state.searchQuery) {
-        const query = state.searchQuery.toLowerCase();
-        if (!guest.name.toLowerCase().includes(query) &&
-            !guest.familyGroup?.toLowerCase().includes(query)) {
-          return false;
-        }
-      }
-      
-      if (state.filterRsvp !== 'all' && guest.rsvp !== state.filterRsvp) {
-        return false;
-      }
-      
-      if (state.filterSide !== 'all' && guest.side !== state.filterSide) {
-        return false;
-      }
-      
-      if (state.showChildrenOnly && !guest.isChild) {
-        return false;
-      }
-      
-      return true;
-    });
-  }, [state.data.guests, state.searchQuery, state.filterRsvp, state.filterSide, state.showChildrenOnly]);
+    return state.data.guests.filter(guest => guestMatchesFilters(guest, true));
+  }, [state.data.guests, guestMatchesFilters]);
   
   const getGuestsAtTable = useCallback((tableId: string): Guest[] => {
     return state.data.guests.filter(g => g.tableId === tableId);
@@ -405,6 +433,7 @@ export function useWeddingState() {
     state,
     dispatch,
     statistics,
+    filteredGuests,
     filteredUnseatedGuests,
     getGuestsAtTable,
     getTableCapacityInfo,

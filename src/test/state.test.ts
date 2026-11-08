@@ -127,6 +127,39 @@ describe('useWeddingState', () => {
     });
   });
   
+  describe('ASSIGN_GUESTS', () => {
+    it('seats a batch in one undo step and refuses a batch that does not fit', () => {
+      const { result } = renderHook(() => useWeddingState());
+      const table = result.current.state.data.tables.find(item => item.capacity === 10)!;
+      const guests = result.current.state.data.guests.slice(0, 3).map(guest => guest.id);
+
+      act(() => {
+        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: guests.slice(0, 2), tableId: table.id });
+      });
+
+      expect(result.current.state.data.guests.filter(guest => guest.tableId === table.id)).toHaveLength(2);
+      expect(result.current.state.undoStack).toHaveLength(1);
+
+      act(() => {
+        result.current.dispatch({ type: 'UPDATE_TABLE', tableId: table.id, updates: { capacity: 2 } });
+      });
+
+      const assignments = result.current.state.data.assignments.length;
+      act(() => {
+        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: [guests[2]], tableId: table.id });
+      });
+      expect(result.current.state.data.assignments).toHaveLength(assignments);
+
+      act(() => {
+        result.current.dispatch({ type: 'UNDO' });
+      });
+      act(() => {
+        result.current.dispatch({ type: 'UNDO' });
+      });
+      expect(result.current.state.data.guests.every(guest => guest.tableId === null)).toBe(true);
+    });
+  });
+
   describe('UNDO/REDO', () => {
     it('undoes guest assignment', () => {
       const { result } = renderHook(() => useWeddingState());

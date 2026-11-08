@@ -1,6 +1,19 @@
 import '@testing-library/react';
 import { vi, afterEach } from 'vitest';
 
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  });
+}
+
 interface LocalStorageMock {
   store: Record<string, string>;
   getItem: (key: string) => string | null;

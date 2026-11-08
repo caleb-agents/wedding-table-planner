@@ -78,6 +78,7 @@ export interface ImportedData {
 
 export type ActionType =
   | { type: 'ASSIGN_GUEST'; guestId: string; tableId: string }
+  | { type: 'ASSIGN_GUESTS'; guestIds: string[]; tableId: string }
   | { type: 'UNASSIGN_GUEST'; guestId: string }
   | { type: 'ASSIGN_GROUP'; groupId: string; tableId: string }
   | { type: 'ADD_TABLE'; table: Table }
