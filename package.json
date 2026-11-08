@@ -12,6 +12,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "convex": "^1.49.0",
+    "convex-test": "^0.0.67",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

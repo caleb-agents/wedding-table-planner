@@ -223,7 +223,8 @@ function reducer(state: AppState, action: ActionType): AppState {
       };
     }
     
-    case 'IMPORT_DATA': {
+    case 'IMPORT_DATA':
+    case 'APPLY_REMOTE': {
       return {
         ...state,
         data: action.data,

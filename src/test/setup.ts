@@ -2,7 +2,9 @@ import '@testing-library/react';
 import { vi, afterEach } from 'vitest';
 import { resetFragmentStartupForTests } from '../utils/fragment';
 
-if (typeof window.matchMedia !== 'function') {
+const hasWindow = typeof window !== 'undefined';
+
+if (hasWindow && typeof window.matchMedia !== 'function') {
   window.matchMedia = (query: string) => ({
     matches: false,
     media: query,
@@ -39,13 +41,17 @@ const localStorageMock: LocalStorageMock = {
   }),
 };
 
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
+if (hasWindow) {
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+  });
+}
 
 afterEach(() => {
-  localStorageMock.store = {};
-  resetFragmentStartupForTests();
-  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  if (hasWindow) {
+    localStorageMock.store = {};
+    resetFragmentStartupForTests();
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
   vi.clearAllMocks();
 });

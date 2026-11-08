@@ -88,6 +88,7 @@ export type ActionType =
   | { type: 'REMOVE_GUEST'; guestId: string }
   | { type: 'UPDATE_GUEST'; guestId: string; updates: Partial<Omit<Guest, 'id'>> }
   | { type: 'IMPORT_DATA'; data: WeddingData }
+  | { type: 'APPLY_REMOTE'; data: WeddingData }
   | { type: 'RESET_TO_DEMO' }
   | { type: 'UNDO' }
   | { type: 'REDO' }

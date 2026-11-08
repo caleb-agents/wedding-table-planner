@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Guest, WeddingData } from './types';
 import { useWeddingState } from './hooks/useWeddingState';
+import { useSharedSync, type SharedSync } from './shared/useSharedSync';
+import { applyRemotePlan, assignmentsDiffer, decideSync, localImportPayload } from './shared/sync';
 import { acceptGuestPayload } from './utils/fragment';
 import { parseCSV } from './utils/validation';
 import { downloadFile, exportSeatingToCSV, exportToJSON } from './utils/storage';
@@ -22,6 +24,37 @@ import './styles/app.css';
 type Chooser = { guestId: string; mode: 'assign' | 'move' };
 
 export default function App() {
+  if (import.meta.env.VITE_CONVEX_URL) {
+    return (
+      <SharedBoundary>
+        <ConnectedPlanner />
+      </SharedBoundary>
+    );
+  }
+  return <Planner sync={null} />;
+}
+
+function ConnectedPlanner() {
+  const sync = useSharedSync();
+  return <Planner sync={sync} />;
+}
+
+class SharedBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <Planner sync={null} offlineNote="The shared plan is unavailable. Showing this browser’s plan. Nothing was uploaded." />;
+    }
+    return this.props.children;
+  }
+}
+
+function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?: string }) {
   const { state, dispatch, fragmentStartup } = useWeddingState();
   const fileRef = useRef<HTMLInputElement>(null);
   const [chooser, setChooser] = useState<Chooser | null>(null);
@@ -37,6 +70,31 @@ export default function App() {
         : null,
   );
   const [status, setStatus] = useState('');
+  const localAtStart = useRef(state.data);
+  const appliedRemote = useRef('');
+  const notedDifference = useRef(false);
+  const [offerImport, setOfferImport] = useState(false);
+  const [importDismissed, setImportDismissed] = useState(false);
+  const [keptLocalNote, setKeptLocalNote] = useState(false);
+
+  useEffect(() => {
+    if (!sync?.remote || sync.remote.groups.length === 0) return;
+    const decision = decideSync({
+      remoteReady: true,
+      remoteAssignmentCount: sync.remote.assignments.length,
+      localAssignmentCount: localAtStart.current.assignments.length,
+    });
+    if (decision.offerImport && !importDismissed) setOfferImport(true);
+    if (!decision.offerImport) setOfferImport(false);
+    const signature = JSON.stringify(sync.remote);
+    if (appliedRemote.current === signature) return;
+    appliedRemote.current = signature;
+    dispatch({ type: 'APPLY_REMOTE', data: applyRemotePlan(sync.remote) });
+    if (!notedDifference.current && !decision.offerImport && localAtStart.current.assignments.length > 0 && assignmentsDiffer(localAtStart.current, sync.remote)) {
+      notedDifference.current = true;
+      setKeptLocalNote(true);
+    }
+  }, [sync?.remote, importDismissed, dispatch]);
 
   const { data } = state;
   const query = state.searchQuery.trim().toLowerCase();
@@ -48,7 +106,11 @@ export default function App() {
   const chooserGuest = chooser ? data.guests.find(guest => guest.id === chooser.guestId) ?? null : null;
   const openGroup = openGroupId ? groups.find(group => group.id === openGroupId) ?? null : null;
 
-  function offerImport(next: WeddingData) {
+  function offerListImport(next: WeddingData) {
+    if (sync) {
+      setNotice('The shared plan was not replaced. A file or link stays on this device, and it is not uploaded automatically.');
+      return;
+    }
     if (shouldConfirmReplace(data)) {
       setPending(next);
       return;
@@ -56,6 +118,18 @@ export default function App() {
     dispatch({ type: 'IMPORT_DATA', data: next });
     setNotice('Guest list loaded on this device.');
     setStatus('');
+  }
+
+  async function sendLocalAssignments() {
+    if (!sync) return;
+    const allowed = new Set(createPublicWedding().guests.map(guest => guest.id));
+    try {
+      await sync.importLocal(localImportPayload(localAtStart.current, allowed));
+      setOfferImport(false);
+      setStatus('Imported this browser’s assignments into the shared plan.');
+    } catch {
+      setStatus('');
+    }
   }
 
   function onFile(file: File) {
@@ -71,7 +145,7 @@ export default function App() {
         setNotice('That file could not be read. Your saved list was not changed.');
         return;
       }
-      offerImport(wedding);
+      offerListImport(wedding);
     };
     reader.onerror = () => {
       setNotice('That file could not be read. Your saved list was not changed.');
@@ -79,20 +153,51 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  function assignTo(guest: Guest, groupId: string) {
+  async function assignTo(guest: Guest, groupId: string) {
     const group = data.tables.find(table => table.id === groupId);
-    if (!group) return;
+    if (!group || guest.tableId === groupId) return;
     const count = groupCount(data.guests, groupId);
     if (isGroupFull(count) || isGroupOverCapacity(count)) return;
+    if (sync) {
+      try {
+        await sync.assign(guest.id, groupId, guest.tableId);
+        setChooser(null);
+        setStatus(`Moved ${guest.name} to ${group.name}.`);
+      } catch {
+        setStatus('');
+      }
+      return;
+    }
     dispatch({ type: 'ASSIGN_GUEST', guestId: guest.id, tableId: groupId });
     setChooser(null);
     setStatus(`Moved ${guest.name} to ${group.name}.`);
   }
 
-  function returnGuest(guest: Guest) {
+  async function returnGuest(guest: Guest) {
+    if (sync) {
+      if (!guest.tableId) return;
+      try {
+        await sync.unseat(guest.id, guest.tableId);
+        setChooser(null);
+        setStatus(`Returned ${guest.name} to unassigned.`);
+      } catch {
+        setStatus('');
+      }
+      return;
+    }
     dispatch({ type: 'UNASSIGN_GUEST', guestId: guest.id });
     setChooser(null);
     setStatus(`Returned ${guest.name} to unassigned.`);
+  }
+
+  function connectionStatus(): string {
+    if (offlineNote) return offlineNote;
+    if (!sync) return status || 'Saved on this device.';
+    if (sync.offline) return 'Offline. Showing the last shared plan on this browser. New changes are not being uploaded.';
+    if (sync.phase === 'syncing' || sync.remote === undefined) return 'Syncing the shared plan…';
+    if (sync.phase === 'saving') return 'Saving…';
+    if (sync.phase === 'error') return sync.detail || 'Not saved. The shared plan did not accept that change.';
+    return status || 'Saved to the shared plan.';
   }
 
   return (
@@ -108,14 +213,17 @@ export default function App() {
               `${unassignedCount(data)} unassigned`,
             ].filter(Boolean).join(' · ')}
           </p>
-          <p className="hint">These guest names are public. Assignments stay in this browser.</p>
-          <p className="status" role="status">{status || 'Saved on this device.'}</p>
+          <p className="hint">{sync
+            ? 'These guest names are public. Assignments are on a shared public plan anyone with this page can change.'
+            : 'These guest names are public. Assignments stay in this browser.'}</p>
+          <p className="status" role="status">{connectionStatus()}</p>
+          {keptLocalNote && <p className="hint">Showing the shared plan. Assignments saved in this browser were not uploaded.</p>}
         </div>
         <div className="toolbar">
-          <button type="button" onClick={() => dispatch({ type: 'UNDO' })} disabled={state.undoStack.length === 0}>
+          <button type="button" onClick={() => { if (sync) void sync.undo(); else dispatch({ type: 'UNDO' }); }} disabled={sync ? !sync.canUndo : state.undoStack.length === 0}>
             Undo
           </button>
-          <button type="button" onClick={() => dispatch({ type: 'REDO' })} disabled={state.redoStack.length === 0}>
+          <button type="button" onClick={() => { if (sync) void sync.redo(); else dispatch({ type: 'REDO' }); }} disabled={sync ? !sync.canRedo : state.redoStack.length === 0}>
             Redo
           </button>
         </div>
@@ -128,38 +236,20 @@ export default function App() {
         </div>
       )}
 
-      <div className="layout">
-        <section className="panel unassigned" aria-labelledby="unassigned-heading">
-          <div className="panel-head">
-            <h2 id="unassigned-heading">Unassigned</h2>
-            <span className="count">{unassignedCount(data)}</span>
+      {offerImport && (
+        <div className="notice">
+          <p>This browser has assignments that are not on the shared plan. Import them only if the shared plan should use this browser’s groups.</p>
+          <div className="backup-actions">
+            <button type="button" onClick={() => void sendLocalAssignments()}>Import assignments from this browser</button>
+            <button type="button" className="quiet" onClick={() => { setOfferImport(false); setImportDismissed(true); }}>Keep the shared plan</button>
           </div>
-          <input
-            className="search"
-            type="search"
-            value={state.searchQuery}
-            placeholder="Search names"
-            aria-label="Search unassigned names"
-            onChange={event => dispatch({ type: 'SET_SEARCH_QUERY', query: event.target.value })}
-          />
-          {unassigned.length === 0 ? (
-            <p className="empty">{query ? 'No names match that search.' : 'Everyone is in a group.'}</p>
-          ) : (
-            <ul className="name-list">
-              {unassigned.map(guest => (
-                <li key={guest.id}>
-                  <button type="button" className="name-button" onClick={() => setChooser({ guestId: guest.id, mode: 'assign' })}>
-                    <span className="person-name">{guest.name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
+      )}
 
+      <div className="layout">
         <section className="panel" aria-labelledby="groups-heading">
           <div className="panel-head">
-            <h2 id="groups-heading">Groups</h2>
+            <h2 id="groups-heading">Tables</h2>
             <span className="count">{groups.length}</span>
           </div>
           <div className="group-list">
@@ -170,38 +260,90 @@ export default function App() {
                 name={group.name}
                 guests={data.guests}
                 onOpen={() => setOpenGroupId(group.id)}
-                onRename={nextName => dispatch({ type: 'UPDATE_TABLE', tableId: group.id, updates: { name: nextName } })}
+                onRename={nextName => {
+                  if (!sync) {
+                    dispatch({ type: 'UPDATE_TABLE', tableId: group.id, updates: { name: nextName } });
+                    return;
+                  }
+                  void sync.rename(group.id, nextName, group.name).then(
+                    () => setStatus(`Renamed ${group.name}.`),
+                    () => setStatus(''),
+                  );
+                }}
                 onRemoveGroup={() => {
                   if (openGroupId === group.id) setOpenGroupId(null);
-                  dispatch({ type: 'REMOVE_TABLE', tableId: group.id });
+                  if (!sync) {
+                    dispatch({ type: 'REMOVE_TABLE', tableId: group.id });
+                    return;
+                  }
+                  const sort = data.tables.findIndex(table => table.id === group.id) + 1;
+                  void sync.removeGroup(group.id, group.name, sort).catch(() => setStatus(''));
                 }}
               />
             ))}
           </div>
           <button
             type="button"
-            className="add-group"
-            onClick={() => dispatch({
-              type: 'ADD_TABLE',
-              table: {
+            className="texty add-group"
+            onClick={() => {
+              const table = {
                 id: generateId('group'),
                 name: nextGroupName(data.tables),
                 capacity: GROUP_CAPACITY,
                 x: 0,
                 y: 0,
-                type: 'round',
-              },
-            })}
+                type: 'round' as const,
+              };
+              if (!sync) {
+                dispatch({ type: 'ADD_TABLE', table });
+                return;
+              }
+              void sync.addGroup(table.id, table.name, data.tables.length + 1).catch(() => setStatus(''));
+            }}
           >
             Add group
           </button>
         </section>
+
+        <details className="guest-fold">
+          <summary>
+            <span className="fold-title">Guest list</span>
+            <span className="count">{data.guests.length} names · {unassignedCount(data)} unassigned</span>
+          </summary>
+          <section className="guest-fold-body" aria-labelledby="unassigned-heading">
+            <div className="panel-head">
+              <h2 id="unassigned-heading">Unassigned</h2>
+              <span className="count">{unassignedCount(data)}</span>
+            </div>
+            <input
+              className="search"
+              type="search"
+              value={state.searchQuery}
+              placeholder="Search names"
+              aria-label="Search unassigned names"
+              onChange={event => dispatch({ type: 'SET_SEARCH_QUERY', query: event.target.value })}
+            />
+            {unassigned.length === 0 ? (
+              <p className="empty">{query ? 'No names match that search.' : 'Everyone is in a group.'}</p>
+            ) : (
+              <ul className="name-list">
+                {unassigned.map(guest => (
+                  <li key={guest.id}>
+                    <button type="button" className="name-button" onClick={() => setChooser({ guestId: guest.id, mode: 'assign' })}>
+                      <span className="person-name">{guest.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </details>
       </div>
 
       <details className="backup">
         <summary>Backup and import</summary>
         <div className="backup-actions">
-          <button type="button" className="quiet" onClick={() => offerImport(createPublicWedding())}>Load wedding list</button>
+          <button type="button" className="quiet" onClick={() => offerListImport(createPublicWedding())}>Load wedding list</button>
           <button type="button" className="quiet" onClick={() => fileRef.current?.click()}>Import file</button>
           <button type="button" className="quiet" onClick={() => downloadFile(exportToJSON(data), 'group-planner-backup.json', 'application/json')}>
             Download backup
@@ -210,7 +352,9 @@ export default function App() {
             Download CSV
           </button>
         </div>
-        <p className="hint">Guest names on this page are published with the site. Assignments stay on this device. Import file and a private link still work if you need another list.</p>
+        <p className="hint">{sync
+          ? 'Guest names on this page are published. The shared plan is public. A file or private link stays on this device and is not uploaded automatically.'
+          : 'Guest names on this page are published with the site. Assignments stay on this device. Import file and a private link still work if you need another list.'}</p>
         <input
           ref={fileRef}
           type="file"
@@ -292,6 +436,11 @@ export default function App() {
                 type="button"
                 className="primary"
                 onClick={() => {
+                  if (sync) {
+                    setPending(null);
+                    setNotice('The shared plan was not replaced.');
+                    return;
+                  }
                   dispatch({ type: 'IMPORT_DATA', data: pending });
                   setPending(null);
                   setNotice('Guest list loaded on this device.');
@@ -324,6 +473,7 @@ function GroupCard({
   onRemoveGroup: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [draft, setDraft] = useState(name);
   const members = guestsInGroup(guests, groupId);
   const count = members.length;
@@ -332,12 +482,17 @@ function GroupCard({
 
   return (
     <article className={`group-card${over ? ' is-over' : ''}`}>
-      <div className="panel-head">
-        <h3>{name}</h3>
-        <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
-      </div>
-      <button type="button" className="group-open" aria-label={`Add people to ${name}`} onClick={onOpen}>
-        Add people
+      <button type="button" className="table-open" aria-label={`Open ${name}`} onClick={onOpen}>
+        <span className="panel-head">
+          <span className="table-name" role="heading" aria-level={3}>{name}</span>
+          <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
+        </span>
+        <span className="seated-names">
+          {members.length === 0 ? 'No one yet' : members.map(guest => (
+            <span key={guest.id} className="seated-name">{guest.name}</span>
+          ))}
+        </span>
+        <span className="open-hint">Open</span>
       </button>
       {over && (
         <p className="over" role="alert">
@@ -355,23 +510,23 @@ function GroupCard({
           }}
         >
           <input aria-label={`Rename ${name}`} value={draft} onChange={event => setDraft(event.target.value)} />
-          <button type="submit">Save</button>
-          <button type="button" onClick={() => { setDraft(name); setRenaming(false); }}>Cancel</button>
+          <button type="submit" className="texty">Save</button>
+          <button type="button" className="texty" onClick={() => { setDraft(name); setRenaming(false); }}>Cancel</button>
         </form>
       ) : (
         <div className="group-tools">
-          <button type="button" className="quiet" onClick={() => { setDraft(name); setRenaming(true); }}>Rename</button>
-          {members.length === 0 && (
-            <button type="button" className="quiet" onClick={onRemoveGroup}>Remove group</button>
+          <button type="button" className="texty" onClick={() => { setDraft(name); setRenaming(true); }}>Rename</button>
+          {members.length === 0 && !confirming && (
+            <button type="button" className="texty" onClick={() => setConfirming(true)}>Remove</button>
+          )}
+          {confirming && (
+            <>
+              <span className="confirm-copy">Remove this empty table?</span>
+              <button type="button" className="texty danger" onClick={onRemoveGroup}>Remove table</button>
+              <button type="button" className="texty" onClick={() => setConfirming(false)}>Cancel</button>
+            </>
           )}
         </div>
-      )}
-      {members.length === 0 ? (
-        <p className="empty">No one yet.</p>
-      ) : (
-        <ul className="preview">
-          {members.map(guest => <li key={guest.id}>{guest.name}</li>)}
-        </ul>
       )}
     </article>
   );

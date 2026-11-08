@@ -51,6 +51,23 @@ describe('group planner', () => {
     localStorage.clear();
   });
 
+  it('shows tables first and keeps the guest list collapsed until opened', async () => {
+    const user = userEvent.setup();
+    seed(plan());
+    render(<App />);
+    const tables = screen.getByRole('heading', { name: 'Tables' });
+    const guestList = screen.getByText('Guest list').closest('details');
+    expect(guestList).toBeTruthy();
+    expect(guestList?.hasAttribute('open')).toBe(false);
+    expect(tables.compareDocumentPosition(guestList as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Group 1' })).toBeTruthy();
+    expect(within(guestList as HTMLElement).getByText('2 names · 2 unassigned')).toBeTruthy();
+    await user.click(screen.getByText('Guest list'));
+    expect(guestList?.hasAttribute('open')).toBe(true);
+    expect(screen.getByLabelText('Search unassigned names')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Ada Fictional' })).toBeTruthy();
+  });
+
   it('assigns, moves, and returns a guest without showing metadata as the main control', async () => {
     const user = userEvent.setup();
     seed(plan());
@@ -68,7 +85,7 @@ describe('group planner', () => {
     expect(within(group as HTMLElement).getByText('1/10')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Ada Fictional' })).toBeNull();
 
-    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Add people to Group 1' }));
+    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Open Group 1' }));
     const panel = screen.getByRole('dialog', { name: 'Group 1' });
     await user.click(within(panel).getByRole('button', { name: 'Move Ada Fictional' }));
     const moveChooser = screen.getByRole('dialog', { name: 'Choose a group' });
@@ -93,7 +110,7 @@ describe('group planner', () => {
 
     const group = screen.getByRole('heading', { name: 'Group 2' }).closest('article');
     expect(within(group as HTMLElement).getByText('1/10')).toBeTruthy();
-    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Add people to Group 2' }));
+    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Open Group 2' }));
     const panel = screen.getByRole('dialog', { name: 'Group 2' });
     await user.click(within(panel).getByRole('button', { name: 'Remove Ada Fictional' }));
     expect(screen.getByRole('button', { name: 'Ada Fictional' })).toBeTruthy();
@@ -163,7 +180,7 @@ describe('group planner', () => {
     seed(data);
     const view = render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Add people to Group 1' }));
+    await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
     const panel = screen.getByRole('dialog', { name: 'Group 1' });
     expect(within(panel).getByText('0/10')).toBeTruthy();
     const search = within(panel).getByLabelText('Search names to add to Group 1');
@@ -198,7 +215,7 @@ describe('group planner', () => {
     full.assignments = full.guests.filter(guest => guest.tableId).map(guest => ({ guestId: guest.id, tableId: guest.tableId as string }));
     seed(full);
     render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Add people to Group 1' }));
+    await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
     const fullPanel = screen.getByRole('dialog', { name: 'Group 1' });
     expect(within(fullPanel).getByText('This group is full.')).toBeTruthy();
     await user.type(within(fullPanel).getByLabelText('Search names to add to Group 1'), 'Ada');
