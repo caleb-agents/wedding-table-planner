@@ -1,15 +1,17 @@
 :root {
   color-scheme: light;
   --text: #1d1c1d;
-  --muted: #616061;
-  --line: #e2e2e2;
-  --bg: #f6f6f6;
+  --muted: #5e5d60;
+  --line: #e6e6e6;
+  --bg: #f4f2f4;
   --card: #ffffff;
-  --accent: #0b57d0;
-  --accent-soft: #f2f3f5;
+  --plum: #4a154b;
+  --accent: #4a154b;
+  --accent-soft: #f6f0f6;
+  --accent-ink: #3b103d;
   --warn-bg: #fff7ed;
   --warn: #9a3412;
-  --shadow: 0 1px 2px rgba(29, 28, 29, 0.06);
+  --shadow: 0 1px 2px rgba(29, 28, 29, 0.05);
   --space: 8px;
 }
 
@@ -36,23 +38,39 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 
 .app {
-  width: min(1040px, 100%);
+  width: min(1120px, 100%);
   margin: 0 auto;
-  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  padding: 0 0 calc(20px + env(safe-area-inset-bottom));
   overflow-x: clip;
 }
 
-.topbar {
+.context {
+  background: var(--plum);
+  color: #fff;
+  padding: 14px 16px 12px;
+}
+
+.context h1,
+.context .status { color: #fff; }
+
+.context .subhead,
+.context .hint { color: rgba(255, 255, 255, 0.82); }
+
+.context-top {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 16px;
+}
+
+.workspace {
+  min-width: 0;
+  padding: 12px 12px 0;
 }
 
 h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   line-height: 1.25;
   letter-spacing: -0.02em;
   font-weight: 700;
@@ -71,13 +89,23 @@ h1 {
   flex-shrink: 0;
 }
 
-.toolbar button,
+.toolbar button {
+  min-height: 44px;
+  min-width: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  padding: 8px 10px;
+  font-weight: 600;
+}
+
 .quiet,
 .person button,
 .chooser-option,
 .dialog-actions button {
   min-height: 44px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--card);
   padding: 8px 12px;
@@ -98,8 +126,22 @@ h1 {
 
 .notice, .demo-note {
   background: var(--accent-soft);
-  color: #1e3a8a;
+  color: var(--accent-ink);
 }
+
+.notice button,
+.backup-actions button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 8px 10px;
+}
+
+.notice .quiet,
+.backup-actions .quiet { color: var(--muted); font-weight: 600; }
 
 .over {
   background: var(--warn-bg);
@@ -117,7 +159,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow);
-  padding: 12px;
+  padding: 8px 8px 4px;
   min-width: 0;
 }
 
@@ -136,7 +178,9 @@ h2, h3 {
 
 .count {
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.87rem;
 }
 
 .count.is-over { color: var(--warn); }
@@ -144,12 +188,18 @@ h2, h3 {
 .search {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--line);
+  border: 1px solid #d8d8d8;
   border-radius: 8px;
   padding: 8px 12px;
-  background: var(--bg);
+  background: #fff;
   margin: 0 0 8px;
   font-size: 16px;
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--plum);
+  box-shadow: 0 0 0 3px rgba(74, 21, 75, 0.18);
 }
 
 .name-list, .group-list, .member-list, .chooser-list {
@@ -187,6 +237,11 @@ h2, h3 {
 
 .group-card.is-over { border-color: #fdba74; background: #fffbf5; }
 
+.group-card.is-selected {
+  background: var(--accent-soft);
+  border-color: #d7c2d8;
+}
+
 .table-open {
   width: 100%;
   min-height: 44px;
@@ -202,7 +257,6 @@ h2, h3 {
 
 .table-open:focus-visible,
 .texty:focus-visible,
-.search:focus-visible,
 .guest-fold summary:focus-visible,
 .backup summary:focus-visible,
 .name-button:focus-visible,
@@ -320,9 +374,9 @@ h2, h3 {
   min-width: 64px;
   border: 0;
   border-radius: 8px;
-  background: var(--accent);
-  color: white;
-  font-weight: 600;
+  background: transparent;
+  color: var(--plum);
+  font-weight: 700;
 }
 
 .add-name:disabled,
@@ -374,7 +428,6 @@ h2, h3 {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: var(--shadow);
   padding: 4px 12px 8px;
   min-width: 0;
 }
@@ -444,7 +497,7 @@ h2, h3 {
   top: var(--vv-offset, 0px);
   height: var(--vv-height, 100dvh);
   z-index: 20;
-  background: rgba(29, 28, 29, 0.45);
+  background: rgba(47, 12, 48, 0.46);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -458,7 +511,7 @@ h2, h3 {
   background: white;
   border-radius: 12px 12px 0 0;
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
-  box-shadow: 0 -8px 24px rgba(29, 28, 29, 0.16);
+  box-shadow: 0 12px 40px rgba(47, 12, 48, 0.22);
   max-height: calc(100% - 12px);
   min-height: 0;
   display: flex;
@@ -531,19 +584,31 @@ h2, h3 {
 
 .empty { color: var(--muted); margin: 8px 0; }
 
+.context button:focus-visible { outline-color: #fff; }
+
+@media (max-width: 480px) {
+  .context-top { flex-wrap: wrap; }
+  .context h1 { font-size: 1.25rem; }
+  .toolbar { width: 100%; margin-left: -8px; }
+}
+
 @media (hover: hover) {
   .table-open:hover,
   .name-button:hover,
   .chooser-option:hover:not(:disabled) {
-    background: #f4f4f5;
+    background: var(--accent-soft);
   }
 
-  .texty:hover { background: rgba(29, 28, 29, 0.05); color: var(--text); }
+  .context .toolbar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+
+  .texty:hover,
+  .add-name:hover:not(:disabled) { background: rgba(74, 21, 75, 0.08); color: var(--plum); }
 }
 
 @media (min-width: 800px) {
   .overlay { align-items: center; padding: 24px; }
   .sheet, .dialog {
+    width: min(520px, 100%);
     border-radius: 12px;
     max-height: min(680px, 100%);
   }
@@ -552,4 +617,33 @@ h2, h3 {
     grid-template-columns: 1fr 1fr;
     gap: 12px;
   }
+}
+
+@media (min-width: 1040px) {
+  body { background: #fff; }
+  .app {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    width: 100%;
+    min-height: 100vh;
+    padding: 0;
+    background: #fff;
+  }
+  .context {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    padding: 24px 18px 20px;
+  }
+  .context h1 { font-size: 1.15rem; }
+  .context-top { flex-direction: column; }
+  .workspace { padding: 22px 28px 36px; }
+  .panel {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
+  }
+  .guest-fold { box-shadow: none; }
 }

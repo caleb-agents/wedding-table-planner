@@ -250,8 +250,9 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
 
   return (
     <main className="app">
-      <header className="topbar">
-        <div>
+      <header className="context">
+        <div className="context-top">
+          <div>
           <h1>Wedding group planner</h1>
           <p className="subhead">
             {[
@@ -261,21 +262,23 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
               `${unassignedCount(data)} unassigned`,
             ].filter(Boolean).join(' · ')}
           </p>
+          </div>
+          <div className="toolbar">
+            <button type="button" onClick={() => { if (sync) void sync.undo(); else dispatch({ type: 'UNDO' }); }} disabled={sync ? !sync.canUndo : state.undoStack.length === 0}>
+              Undo
+            </button>
+            <button type="button" onClick={() => { if (sync) void sync.redo(); else dispatch({ type: 'REDO' }); }} disabled={sync ? !sync.canRedo : state.redoStack.length === 0}>
+              Redo
+            </button>
+          </div>
+        </div>
           <p className="hint">{sync
             ? 'These guest names are public. Assignments are on a shared public plan anyone with this page can change.'
             : 'These guest names are public. Assignments stay in this browser.'}</p>
           <p className="status" role="status">{connectionStatus()}</p>
           {keptLocalNote && <p className="hint">Showing the shared plan. Assignments saved in this browser were not uploaded.</p>}
-        </div>
-        <div className="toolbar">
-          <button type="button" onClick={() => { if (sync) void sync.undo(); else dispatch({ type: 'UNDO' }); }} disabled={sync ? !sync.canUndo : state.undoStack.length === 0}>
-            Undo
-          </button>
-          <button type="button" onClick={() => { if (sync) void sync.redo(); else dispatch({ type: 'REDO' }); }} disabled={sync ? !sync.canRedo : state.redoStack.length === 0}>
-            Redo
-          </button>
-        </div>
       </header>
+      <div className="workspace">
 
       {notice && (
         <div className="notice" role="status">
@@ -307,6 +310,7 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
                 groupId={group.id}
                 name={group.name}
                 guests={data.guests}
+                selected={openGroupId === group.id}
                 onOpen={() => setOpenGroupId(group.id)}
                 onRename={nextName => {
                   if (!sync) {
@@ -415,6 +419,7 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
           }}
         />
       </details>
+      </div>
 
       {openGroup && (
         <GroupPanel
@@ -509,6 +514,7 @@ function GroupCard({
   groupId,
   name,
   guests,
+  selected,
   onOpen,
   onRename,
   onRemoveGroup,
@@ -516,6 +522,7 @@ function GroupCard({
   groupId: string;
   name: string;
   guests: Guest[];
+  selected: boolean;
   onOpen: () => void;
   onRename: (name: string) => void;
   onRemoveGroup: () => void;
@@ -529,8 +536,8 @@ function GroupCard({
   const full = isGroupFull(count);
 
   return (
-    <article className={`group-card${over ? ' is-over' : ''}`}>
-      <button type="button" className="table-open" aria-label={`Open ${name}`} onClick={onOpen}>
+    <article className={`group-card${over ? ' is-over' : ''}${selected ? ' is-selected' : ''}`}>
+      <button type="button" className="table-open" aria-label={`Open ${name}`} aria-expanded={selected} onClick={onOpen}>
         <span className="panel-head">
           <span className="table-name" role="heading" aria-level={3}>{name}</span>
           <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
