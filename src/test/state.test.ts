@@ -2,18 +2,24 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useWeddingState } from '../hooks/useWeddingState';
 import { generateId } from '../utils/ids';
+import { createPublicWedding } from '../data/sampleData';
+import { saveToStorage } from '../utils/storage';
 
 describe('useWeddingState', () => {
   beforeEach(() => {
     localStorage.clear();
   });
   
-  it('initializes with sample wedding data', () => {
+  it('initializes with the public wedding list', () => {
     const { result } = renderHook(() => useWeddingState());
     
-    expect(result.current.state.data.isDemo).toBe(true);
-    expect(result.current.state.data.guests.length).toBeGreaterThan(0);
-    expect(result.current.state.data.tables.length).toBeGreaterThan(0);
+    expect(result.current.state.data.isDemo).toBe(false);
+    expect(result.current.state.data.name).toBe('Wedding group planner');
+    expect(result.current.state.data.guests).toHaveLength(135);
+    expect(result.current.state.data.guests[0]).toMatchObject({ id: 'g001', name: 'Jean Huang' });
+    expect(result.current.state.data.tables).toHaveLength(14);
+    expect(result.current.state.data.tables.every(table => table.capacity === 10)).toBe(true);
+    expect(result.current.state.data.assignments).toEqual([]);
   });
   
   describe('ASSIGN_GUEST', () => {
@@ -110,6 +116,10 @@ describe('useWeddingState', () => {
   
   describe('ASSIGN_GROUP', () => {
     it('assigns entire family group to table', () => {
+      const seeded = createPublicWedding();
+      seeded.guests[0].familyGroup = 'Test Family';
+      seeded.guests[1].familyGroup = 'Test Family';
+      saveToStorage(seeded);
       const { result } = renderHook(() => useWeddingState());
       
       const familyGroups = result.current.getFamilyGroups();
@@ -150,6 +160,25 @@ describe('useWeddingState', () => {
         result.current.dispatch({ type: 'UNDO' });
       });
       expect(result.current.state.data.guests.every(guest => guest.tableId === null)).toBe(true);
+    });
+  });
+
+  describe('RESET_TO_DEMO', () => {
+    it('reloads the public wedding list', () => {
+      const { result } = renderHook(() => useWeddingState());
+      const guestId = result.current.state.data.guests[0].id;
+      const tableId = result.current.state.data.tables[0].id;
+
+      act(() => {
+        result.current.dispatch({ type: 'ASSIGN_GUEST', guestId, tableId });
+        result.current.dispatch({ type: 'RESET_TO_DEMO' });
+      });
+
+      expect(result.current.state.data.isDemo).toBe(false);
+      expect(result.current.state.data.guests).toHaveLength(135);
+      expect(result.current.state.data.guests[0]).toMatchObject({ id: 'g001', name: 'Jean Huang', tableId: null });
+      expect(result.current.state.data.assignments).toEqual([]);
+      expect(result.current.state.data.tables.every(table => table.capacity === 10)).toBe(true);
     });
   });
 
@@ -276,24 +305,26 @@ describe('useWeddingState', () => {
       const { result } = renderHook(() => useWeddingState());
       
       act(() => {
-        result.current.dispatch({ type: 'SET_FILTER_RSVP', filter: 'confirmed' });
+        result.current.dispatch({ type: 'SET_FILTER_RSVP', filter: 'unknown' });
       });
       
       const filtered = result.current.filteredUnseatedGuests;
-      expect(filtered.every(g => g.rsvp === 'confirmed')).toBe(true);
+      expect(filtered).toHaveLength(135);
+      expect(filtered.every(g => g.rsvp === 'unknown')).toBe(true);
     });
     
     it('filters guests by search query', () => {
       const { result } = renderHook(() => useWeddingState());
       
       act(() => {
-        result.current.dispatch({ type: 'SET_SEARCH_QUERY', query: 'Star' });
+        result.current.dispatch({ type: 'SET_SEARCH_QUERY', query: 'Huang' });
       });
       
       const filtered = result.current.filteredUnseatedGuests;
+      expect(filtered.length).toBeGreaterThan(0);
       expect(filtered.every(g => 
-        g.name.toLowerCase().includes('star') || 
-        g.familyGroup?.toLowerCase().includes('star')
+        g.name.toLowerCase().includes('huang') || 
+        g.familyGroup?.toLowerCase().includes('huang')
       )).toBe(true);
     });
   });

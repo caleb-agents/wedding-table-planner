@@ -1,6 +1,6 @@
 import type { WeddingData } from '../types';
 import { validateWeddingData } from './validation';
-import { createSampleWedding } from '../data/sampleData';
+import { createPublicWedding } from '../data/sampleData';
 import { adaptLegacyPlan } from './groups';
 
 export const STORAGE_KEY = 'wedding_table_planner_data';
@@ -32,27 +32,32 @@ export function loadFromStorage(): WeddingData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return createSampleWedding();
+      return createPublicWedding();
     }
     
     const parsed = JSON.parse(raw);
     
     if (parsed && typeof parsed === 'object' && 'version' in parsed && 'data' in parsed) {
       if (validateWeddingData(parsed.data)) {
-        return adaptLegacyPlan(parsed.data);
+        return planFromStorage(parsed.data);
       }
     }
     
     if (validateWeddingData(parsed)) {
-      return adaptLegacyPlan(parsed);
+      return planFromStorage(parsed);
     }
     
-    console.warn('Invalid data in localStorage, returning sample');
-    return createSampleWedding();
+    console.warn('Invalid data in localStorage, returning the wedding list');
+    return createPublicWedding();
   } catch (e) {
     console.error('Failed to load from localStorage:', e);
-    return createSampleWedding();
+    return createPublicWedding();
   }
+}
+
+function planFromStorage(data: WeddingData): WeddingData {
+  if (data.isDemo) return createPublicWedding();
+  return adaptLegacyPlan(data);
 }
 
 export function clearStorage(): void {

@@ -7,7 +7,7 @@ import {
   exportToJSON,
   exportSeatingToCSV,
 } from '../utils/storage';
-import { createSampleWedding } from '../data/sampleData';
+import { createPublicWedding } from '../data/sampleData';
 import type { WeddingData } from '../types';
 
 describe('storage', () => {
@@ -17,7 +17,7 @@ describe('storage', () => {
   
   describe('saveToStorage / loadFromStorage', () => {
     it('saves and loads wedding data', () => {
-      const data = createSampleWedding();
+      const data = createPublicWedding();
       data.name = 'Test Wedding';
       
       saveToStorage(data);
@@ -27,19 +27,23 @@ describe('storage', () => {
       expect(loaded.guests.length).toBe(data.guests.length);
     });
     
-    it('returns sample data when nothing stored', () => {
+    it('returns the public wedding list when nothing is stored', () => {
       const loaded = loadFromStorage();
       
-      expect(loaded.isDemo).toBe(true);
-      expect(loaded.guests.length).toBeGreaterThan(0);
+      expect(loaded.isDemo).toBe(false);
+      expect(loaded.name).toBe('Wedding group planner');
+      expect(loaded.guests).toHaveLength(135);
+      expect(loaded.guests[0]).toMatchObject({ id: 'g001', name: 'Jean Huang', tableId: null });
     });
     
-    it('returns sample data for invalid stored data', () => {
+    it('returns the public wedding list for invalid stored data', () => {
       localStorage.setItem('wedding_table_planner_data', 'invalid json');
       
       const loaded = loadFromStorage();
       
-      expect(loaded.isDemo).toBe(true);
+      expect(loaded.isDemo).toBe(false);
+      expect(loaded.guests).toHaveLength(135);
+      expect(loaded.guests[0].name).toBe('Jean Huang');
     });
   });
   
@@ -47,13 +51,13 @@ describe('storage', () => {
     it('detects stored data', () => {
       expect(hasStoredData()).toBe(false);
       
-      saveToStorage(createSampleWedding());
+      saveToStorage(createPublicWedding());
       
       expect(hasStoredData()).toBe(true);
     });
     
     it('clears stored data', () => {
-      saveToStorage(createSampleWedding());
+      saveToStorage(createPublicWedding());
       clearStorage();
       
       expect(hasStoredData()).toBe(false);
@@ -62,7 +66,7 @@ describe('storage', () => {
   
   describe('exportToJSON', () => {
     it('exports valid JSON with metadata', () => {
-      const data = createSampleWedding();
+      const data = createPublicWedding();
       const json = exportToJSON(data);
       const parsed = JSON.parse(json);
       
@@ -74,7 +78,7 @@ describe('storage', () => {
   
   describe('exportSeatingToCSV', () => {
     it('exports CSV with headers', () => {
-      const data = createSampleWedding();
+      const data = createPublicWedding();
       const csv = exportSeatingToCSV(data);
       const lines = csv.split('\n');
       

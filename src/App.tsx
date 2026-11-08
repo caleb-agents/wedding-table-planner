@@ -16,6 +16,7 @@ import {
   sortedGroups,
 } from './utils/groups';
 import { generateId } from './utils/ids';
+import { createPublicWedding } from './data/sampleData';
 import './styles/app.css';
 
 type Chooser = { guestId: string; mode: 'assign' | 'move' };
@@ -96,12 +97,16 @@ export default function App() {
     <main className="app">
       <header className="topbar">
         <div>
-          <h1>Group planner</h1>
+          <h1>Wedding group planner</h1>
           <p className="subhead">
-            {data.name}
-            {data.weddingDate ? ` · ${formatWeddingDate(data.weddingDate)}` : ''}
-            {` · ${data.guests.length - unassignedCount(data)} grouped · ${unassignedCount(data)} unassigned`}
+            {[
+              data.name !== 'Wedding group planner' ? data.name : '',
+              data.weddingDate ? formatWeddingDate(data.weddingDate) : '',
+              `${data.guests.length - unassignedCount(data)} grouped`,
+              `${unassignedCount(data)} unassigned`,
+            ].filter(Boolean).join(' · ')}
           </p>
+          <p className="hint">These guest names are public. Assignments stay in this browser.</p>
           <p className="status" role="status">{status || 'Saved on this device.'}</p>
         </div>
         <div className="toolbar">
@@ -119,12 +124,6 @@ export default function App() {
           <p>{notice}</p>
           <button type="button" className="quiet" onClick={() => setNotice(null)}>Dismiss</button>
         </div>
-      )}
-
-      {data.isDemo && (
-        <p className="demo-note">
-          These are sample names. Import your list, or open the private link you were sent. Names stay in this browser.
-        </p>
       )}
 
       <div className="layout">
@@ -202,6 +201,7 @@ export default function App() {
       <details className="backup">
         <summary>Backup and import</summary>
         <div className="backup-actions">
+          <button type="button" className="quiet" onClick={() => offerImport(createPublicWedding())}>Load wedding list</button>
           <button type="button" className="quiet" onClick={() => fileRef.current?.click()}>Import file</button>
           <button type="button" className="quiet" onClick={() => downloadFile(exportToJSON(data), 'group-planner-backup.json', 'application/json')}>
             Download backup
@@ -210,7 +210,7 @@ export default function App() {
             Download CSV
           </button>
         </div>
-        <p className="hint">A backup stays on this device until you choose a file. Nothing is uploaded.</p>
+        <p className="hint">Guest names on this page are published with the site. Assignments stay on this device. Import file and a private link still work if you need another list.</p>
         <input
           ref={fileRef}
           type="file"

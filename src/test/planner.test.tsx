@@ -150,6 +150,34 @@ describe('group planner', () => {
     expect(screen.getByRole('heading', { name: 'Group 3' })).toBeTruthy();
   });
 
+  it('opens the published names without an import', () => {
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'Wedding group planner' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Jean Huang' })).toBeTruthy();
+    expect(screen.getByText('These guest names are public. Assignments stay in this browser.')).toBeTruthy();
+    expect(screen.queryByText(/sample/i)).toBeNull();
+  });
+
+  it('asks before Load wedding list replaces assigned people', async () => {
+    const user = userEvent.setup();
+    const saved = plan();
+    saved.guests[0].tableId = 'g1';
+    saved.assignments = [{ guestId: 'ada', tableId: 'g1' }];
+    seed(saved);
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Load wedding list' }));
+    expect(screen.getByRole('dialog', { name: 'Replace the saved list?' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Keep saved list' }));
+    expect(screen.getByText('Ada Fictional')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Jean Huang' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Load wedding list' }));
+    await user.click(screen.getByRole('button', { name: 'Replace list' }));
+    expect(screen.getByRole('button', { name: 'Jean Huang' })).toBeTruthy();
+    expect(screen.queryByText('Ada Fictional')).toBeNull();
+  });
+
   it('asks before a private link replaces assigned guests, and a bad link changes nothing', async () => {
     const user = userEvent.setup();
     const saved = plan();

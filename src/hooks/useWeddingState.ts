@@ -1,7 +1,7 @@
 import { useReducer, useEffect, useCallback, useMemo } from 'react';
 import type { WeddingData, AppState, ActionType, Guest } from '../types';
 import { saveToStorage, loadFromStorage } from '../utils/storage';
-import { createSampleWedding } from '../data/sampleData';
+import { createPublicWedding } from '../data/sampleData';
 import { GROUP_CAPACITY } from '../utils/groups';
 import { consumeFragmentAtStartup } from '../utils/fragment';
 
@@ -237,7 +237,7 @@ function reducer(state: AppState, action: ActionType): AppState {
     case 'RESET_TO_DEMO': {
       return {
         ...state,
-        data: createSampleWedding(),
+        data: createPublicWedding(),
         undoStack: [],
         redoStack: [],
         selectedGuestId: null,
