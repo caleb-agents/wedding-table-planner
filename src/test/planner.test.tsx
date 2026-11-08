@@ -68,7 +68,9 @@ describe('group planner', () => {
     expect(within(group as HTMLElement).getByText('1/10')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Ada Fictional' })).toBeNull();
 
-    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Move Ada Fictional' }));
+    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Add people to Group 1' }));
+    const panel = screen.getByRole('dialog', { name: 'Group 1' });
+    await user.click(within(panel).getByRole('button', { name: 'Move Ada Fictional' }));
     const moveChooser = screen.getByRole('dialog', { name: 'Choose a group' });
     await user.click(within(moveChooser).getByRole('button', { name: 'Unassigned' }));
     expect(screen.getByRole('button', { name: 'Ada Fictional' })).toBeTruthy();
@@ -91,7 +93,9 @@ describe('group planner', () => {
 
     const group = screen.getByRole('heading', { name: 'Group 2' }).closest('article');
     expect(within(group as HTMLElement).getByText('1/10')).toBeTruthy();
-    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Remove Ada Fictional' }));
+    await user.click(within(group as HTMLElement).getByRole('button', { name: 'Add people to Group 2' }));
+    const panel = screen.getByRole('dialog', { name: 'Group 2' });
+    await user.click(within(panel).getByRole('button', { name: 'Remove Ada Fictional' }));
     expect(screen.getByRole('button', { name: 'Ada Fictional' })).toBeTruthy();
   });
 
@@ -132,7 +136,8 @@ describe('group planner', () => {
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: 'Waiting Fictional' }));
-    expect(screen.getByRole('button', { name: /Group 3/ })).toHaveProperty('disabled', true);
+    const chooser = screen.getByRole('dialog', { name: 'Choose a group' });
+    expect(within(chooser).getByRole('button', { name: /Group 3/ })).toHaveProperty('disabled', true);
   });
 
   it('renames a group and adds another', async () => {
@@ -148,6 +153,56 @@ describe('group planner', () => {
     expect(screen.getByRole('heading', { name: 'Family' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Add group' }));
     expect(screen.getByRole('heading', { name: 'Group 3' })).toBeTruthy();
+  });
+
+  it('searches inside a group and adds, removes, and blocks a full group', async () => {
+    const user = userEvent.setup();
+    const data = plan(10);
+    data.guests[2].tableId = 'g2';
+    data.assignments = [{ guestId: data.guests[2].id, tableId: 'g2' }];
+    seed(data);
+    const view = render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Add people to Group 1' }));
+    const panel = screen.getByRole('dialog', { name: 'Group 1' });
+    expect(within(panel).getByText('0/10')).toBeTruthy();
+    const search = within(panel).getByLabelText('Search names to add to Group 1');
+    await user.type(search, 'Ada');
+    expect(within(panel).getByText('Unassigned')).toBeTruthy();
+    await user.click(within(panel).getByRole('button', { name: 'Add Ada Fictional to Group 1' }));
+    expect(within(panel).getByText('1/10')).toBeTruthy();
+    expect(within(panel).getByText('Ada Fictional')).toBeTruthy();
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { data: WeddingData };
+    expect(stored.data.guests.find(guest => guest.id === 'ada')?.tableId).toBe('g1');
+    expect(stored.data.assignments).toContainEqual({ guestId: 'ada', tableId: 'g1' });
+
+    await user.clear(search);
+    await user.type(search, 'Extra Fictional 1');
+    expect(within(panel).getByText('In Group 2')).toBeTruthy();
+    expect(within(panel).queryByRole('button', { name: 'Add Extra Fictional 1 to Group 1' })).toBeNull();
+    await user.click(within(panel).getByRole('button', { name: 'Move Extra Fictional 1 from Group 2 to Group 1' }));
+    const moved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { data: WeddingData };
+    expect(moved.data.guests.find(guest => guest.id === 'extra_0')?.tableId).toBe('g1');
+    expect(within(panel).getByText('2/10')).toBeTruthy();
+
+    await user.click(within(panel).getByRole('button', { name: 'Remove Ada Fictional' }));
+    expect(within(panel).queryByRole('button', { name: 'Remove Ada Fictional' })).toBeNull();
+    await user.click(within(panel).getByRole('button', { name: 'Close' }));
+    view.unmount();
+
+    const full = plan(10);
+    full.guests.slice(1, 11).forEach(guest => {
+      guest.tableId = 'g1';
+    });
+    full.assignments = full.guests.filter(guest => guest.tableId).map(guest => ({ guestId: guest.id, tableId: guest.tableId as string }));
+    seed(full);
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Add people to Group 1' }));
+    const fullPanel = screen.getByRole('dialog', { name: 'Group 1' });
+    expect(within(fullPanel).getByText('This group is full.')).toBeTruthy();
+    await user.type(within(fullPanel).getByLabelText('Search names to add to Group 1'), 'Ada');
+    expect(within(fullPanel).getByRole('button', { name: 'Add Ada Fictional to Group 1' })).toHaveProperty('disabled', true);
   });
 
   it('opens the published names without an import', () => {

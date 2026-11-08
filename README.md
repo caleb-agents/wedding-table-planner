@@ -1,6 +1,6 @@
 # Wedding group planner
 
-A one-page planner for putting the wedding guests into groups of 10.
+A one-page planner for putting the wedding guests into groups of 10. Tap a group, then search a name to add that person. People already in another group are labeled with that group, and moving them takes a separate button. A full group shows that it is full and will not take anyone else. Undo puts the last change back. Assignments stay in this browser.
 
 ## Run locally
 

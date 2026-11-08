@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Guest, WeddingData } from './types';
 import { useWeddingState } from './hooks/useWeddingState';
 import { acceptGuestPayload } from './utils/fragment';
@@ -25,6 +25,7 @@ export default function App() {
   const { state, dispatch, fragmentStartup } = useWeddingState();
   const fileRef = useRef<HTMLInputElement>(null);
   const [chooser, setChooser] = useState<Chooser | null>(null);
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const [pending, setPending] = useState<WeddingData | null>(
     fragmentStartup.status === 'confirm' ? fragmentStartup.next : null,
   );
@@ -45,6 +46,7 @@ export default function App() {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const groups = sortedGroups(data.tables);
   const chooserGuest = chooser ? data.guests.find(guest => guest.id === chooser.guestId) ?? null : null;
+  const openGroup = openGroupId ? groups.find(group => group.id === openGroupId) ?? null : null;
 
   function offerImport(next: WeddingData) {
     if (shouldConfirmReplace(data)) {
@@ -167,14 +169,12 @@ export default function App() {
                 groupId={group.id}
                 name={group.name}
                 guests={data.guests}
-                query={query}
-                onMove={guestId => setChooser({ guestId, mode: 'move' })}
-                onRemove={guestId => {
-                  const guest = data.guests.find(item => item.id === guestId);
-                  if (guest) returnGuest(guest);
-                }}
+                onOpen={() => setOpenGroupId(group.id)}
                 onRename={nextName => dispatch({ type: 'UPDATE_TABLE', tableId: group.id, updates: { name: nextName } })}
-                onRemoveGroup={() => dispatch({ type: 'REMOVE_TABLE', tableId: group.id })}
+                onRemoveGroup={() => {
+                  if (openGroupId === group.id) setOpenGroupId(null);
+                  dispatch({ type: 'REMOVE_TABLE', tableId: group.id });
+                }}
               />
             ))}
           </div>
@@ -223,6 +223,18 @@ export default function App() {
           }}
         />
       </details>
+
+      {openGroup && (
+        <GroupPanel
+          group={openGroup}
+          guests={data.guests}
+          groupName={groupId => data.tables.find(table => table.id === groupId)?.name ?? 'another group'}
+          onClose={() => setOpenGroupId(null)}
+          onAdd={guest => assignTo(guest, openGroup.id)}
+          onRemove={returnGuest}
+          onMove={guestId => setChooser({ guestId, mode: 'move' })}
+        />
+      )}
 
       {chooser && chooserGuest && (
         <div className="overlay" onClick={() => setChooser(null)}>
@@ -300,34 +312,33 @@ function GroupCard({
   groupId,
   name,
   guests,
-  query,
-  onMove,
-  onRemove,
+  onOpen,
   onRename,
   onRemoveGroup,
 }: {
   groupId: string;
   name: string;
   guests: Guest[];
-  query: string;
-  onMove: (guestId: string) => void;
-  onRemove: (guestId: string) => void;
+  onOpen: () => void;
   onRename: (name: string) => void;
   onRemoveGroup: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(name);
   const members = guestsInGroup(guests, groupId);
-  const visible = query ? members.filter(guest => matchesQuery(guest, query)) : members;
   const count = members.length;
   const over = isGroupOverCapacity(count);
+  const full = isGroupFull(count);
 
   return (
     <article className={`group-card${over ? ' is-over' : ''}`}>
       <div className="panel-head">
         <h3>{name}</h3>
-        <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}</span>
+        <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
       </div>
+      <button type="button" className="group-open" aria-label={`Add people to ${name}`} onClick={onOpen}>
+        Add people
+      </button>
       {over && (
         <p className="over" role="alert">
           {count} people in a group of {GROUP_CAPACITY}. Move or remove {count - GROUP_CAPACITY} before adding anyone else.
@@ -355,20 +366,148 @@ function GroupCard({
           )}
         </div>
       )}
-      {visible.length === 0 ? (
-        <p className="empty">{members.length === 0 ? 'No one yet.' : 'No names match that search.'}</p>
+      {members.length === 0 ? (
+        <p className="empty">No one yet.</p>
       ) : (
-        <ul className="member-list">
-          {visible.map(guest => (
-            <li key={guest.id} className="person">
-              <span className="person-name">{guest.name}</span>
-              <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${guest.name}`}>Move</button>
-              <button type="button" onClick={() => onRemove(guest.id)} aria-label={`Remove ${guest.name}`}>Remove</button>
-            </li>
-          ))}
+        <ul className="preview">
+          {members.map(guest => <li key={guest.id}>{guest.name}</li>)}
         </ul>
       )}
     </article>
+  );
+}
+
+function GroupPanel({
+  group,
+  guests,
+  groupName,
+  onClose,
+  onAdd,
+  onRemove,
+  onMove,
+}: {
+  group: { id: string; name: string };
+  guests: Guest[];
+  groupName: (groupId: string) => string;
+  onClose: () => void;
+  onAdd: (guest: Guest) => void;
+  onRemove: (guest: Guest) => void;
+  onMove: (guestId: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
+  const members = guestsInGroup(guests, group.id);
+  const count = members.length;
+  const full = isGroupFull(count);
+  const over = isGroupOverCapacity(count);
+  const needle = query.trim().toLowerCase();
+  const others = guests
+    .filter(guest => guest.tableId !== group.id)
+    .filter(guest => !needle || matchesQuery(guest, needle))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  const unassigned = others.filter(guest => guest.tableId === null);
+  const seatedElsewhere = needle ? others.filter(guest => guest.tableId !== null) : [];
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div
+        className="sheet group-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="group-panel-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="panel-head">
+          <h2 id="group-panel-title">{group.name}</h2>
+          <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}{full && !over ? ' · Full' : ''}</span>
+          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        </div>
+        {full && !over && <p className="full-note">This group is full.</p>}
+        {over && (
+          <p className="over" role="alert">
+            {count} people in a group of {GROUP_CAPACITY}. Remove {count - GROUP_CAPACITY} before adding anyone else.
+          </p>
+        )}
+        <h3 className="panel-label">In this group</h3>
+        {members.length === 0 ? (
+          <p className="empty">No one yet.</p>
+        ) : (
+          <ul className="member-well">
+            {members.map(guest => (
+              <li key={guest.id} className="person">
+                <span className="person-name">{guest.name}</span>
+                <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${guest.name}`}>Move</button>
+                <button type="button" onClick={() => onRemove(guest)} aria-label={`Remove ${guest.name}`}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <input
+          ref={searchRef}
+          className="search"
+          type="search"
+          value={query}
+          placeholder="Search names to add"
+          aria-label={`Search names to add to ${group.name}`}
+          onChange={event => setQuery(event.target.value)}
+        />
+        <div className="panel-results">
+          {unassigned.length === 0 && seatedElsewhere.length === 0 ? (
+            <p className="empty">{needle ? 'No names match that search.' : 'Everyone else is already in a group.'}</p>
+          ) : (
+            <ul className="name-list">
+              {unassigned.map(guest => (
+                <li key={guest.id} className="person one-action">
+                  <span>
+                    <span className="person-name">{guest.name}</span>
+                    <span className="meta">Unassigned</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="add-name"
+                    disabled={full}
+                    aria-label={`Add ${guest.name} to ${group.name}`}
+                    onClick={() => onAdd(guest)}
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {seatedElsewhere.length > 0 && (
+            <>
+              <h3 className="panel-label">Already in a group</h3>
+              <ul className="name-list">
+                {seatedElsewhere.map(guest => {
+                  const current = groupName(guest.tableId as string);
+                  return (
+                    <li key={guest.id} className="person one-action">
+                      <span>
+                        <span className="person-name">{guest.name}</span>
+                        <span className="meta">In {current}</span>
+                      </span>
+                      <button
+                        type="button"
+                        className="quiet"
+                        disabled={full}
+                        aria-label={`Move ${guest.name} from ${current} to ${group.name}`}
+                        onClick={() => onAdd(guest)}
+                      >
+                        Move here
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -176,11 +176,101 @@ h2, h3 {
 
 .group-card.is-over { border-color: #fdba74; background: #fffbf5; }
 
+.group-open {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+}
+
 .group-tools {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin: 8px 0;
+}
+
+.preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+}
+
+.panel-label {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.full-note {
+  margin: 0;
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.member-well {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 28dvh;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.member-well > li {
+  flex: 0 0 auto;
+}
+
+.sheet.group-panel > .panel-results {
+  flex: 1 1 auto;
+  min-height: 88px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-results > *,
+.panel-results .person,
+.panel-results .name-list > li {
+  flex: 0 0 auto;
+}
+
+.person.one-action {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.person.one-action > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.person.one-action .meta {
+  margin: 0;
+}
+
+.person button.add-name {
+  min-height: 48px;
+  min-width: 76px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+}
+
+.add-name:disabled,
+.group-panel button:disabled {
+  opacity: 0.45;
 }
 
 .rename-row {
