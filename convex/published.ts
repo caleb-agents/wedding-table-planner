@@ -20,6 +20,10 @@ export function defaultGroups(): Array<{ groupId: string; name: string; sort: nu
   }));
 }
 
+export function isPublishedGuest(guestId: string): boolean {
+  return publishedIds.has(guestId);
+}
+
 export function assertPublishedGuest(guestId: string): void {
   if (!publishedIds.has(guestId)) {
     throw new Error("That guest is not on the public list.");

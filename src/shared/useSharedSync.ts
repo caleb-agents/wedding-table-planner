@@ -24,6 +24,8 @@ export function useSharedSync() {
   const addGroupMutation = useMutation(api.plan.addGroup);
   const removeGroupMutation = useMutation(api.plan.removeGroup);
   const importLocalMutation = useMutation(api.plan.importLocal);
+  const addGuestMutation = useMutation(api.plan.addGuest);
+  const removeGuestMutation = useMutation(api.plan.removeGuest);
   const ensureDefaults = useMutation(api.plan.ensureDefaults);
   const [busy, setBusy] = useState(false);
   const [browserOffline, setBrowserOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
@@ -109,6 +111,18 @@ export function useSharedSync() {
       return run({
         redo: () => removeGroupMutation({ groupId }),
         undo: () => addGroupMutation({ groupId, name, sort }),
+      });
+    },
+    addGuest(guestId: string, name: string) {
+      return run({
+        redo: () => addGuestMutation({ guestId, name }),
+        undo: () => removeGuestMutation({ guestId }),
+      });
+    },
+    removeGuest(guestId: string, name: string) {
+      return run({
+        redo: () => removeGuestMutation({ guestId }),
+        undo: () => addGuestMutation({ guestId, name }),
       });
     },
     importLocal(payload: ImportPayload) {

@@ -105,4 +105,83 @@ describe('shared plan', () => {
     expect(plan.groups.find(group => group.groupId === 'group-1')).toBeUndefined();
     expect(plan.guests.find(guest => guest.guestId === 'g135')?.name).toBe('Athena');
   });
+
+  it('adds a separate person for a repeated name and keeps them unassigned', async () => {
+    const t = backend();
+    await t.mutation(api.plan.ensureDefaults, {});
+    const id = 'c_abcd1234efgh';
+    await t.mutation(api.plan.addGuest, { guestId: id, name: '  Jean   Huang ' });
+    await t.mutation(api.plan.addGuest, { guestId: id, name: 'Jean Huang' });
+    await t.mutation(api.plan.ensureDefaults, {});
+    const plan = await t.query(api.plan.get, {});
+    const matches = plan.guests.filter(guest => guest.name === 'Jean Huang');
+    expect(matches.map(guest => guest.guestId)).toEqual(['g001', id]);
+    expect(plan.guests).toHaveLength(published.length + 1);
+    expect(plan.assignments).toEqual([]);
+    expect(plan.guests.at(-1)?.guestId).toBe(id);
+    expect(Object.keys(plan.guests.at(-1) ?? {}).sort()).toEqual(['guestId', 'name']);
+    await expect(t.mutation(api.plan.addGuest, { guestId: id, name: 'Someone Else' })).rejects.toThrow(/already in use/);
+    expect((await t.query(api.plan.get, {})).guests.find(guest => guest.guestId === id)?.name).toBe('Jean Huang');
+  });
+
+  it('rejects an empty name, a long name, a published id, and an unsafe id', async () => {
+    const t = backend();
+    await t.mutation(api.plan.ensureDefaults, {});
+    await expect(t.mutation(api.plan.addGuest, { guestId: 'c_abcd1234efgh', name: '   ' })).rejects.toThrow(/Enter a name/);
+    await expect(t.mutation(api.plan.addGuest, { guestId: 'c_abcd1234efgh', name: 'A'.repeat(81) })).rejects.toThrow(/80/);
+    await expect(t.mutation(api.plan.addGuest, { guestId: 'g001', name: 'Nope' })).rejects.toThrow(/original list/);
+    await expect(t.mutation(api.plan.addGuest, { guestId: 'guest_not_custom', name: 'Nope' })).rejects.toThrow(/not valid/);
+    const plan = await t.query(api.plan.get, {});
+    expect(plan.guests).toHaveLength(published.length);
+  });
+
+  it('seats an added guest under the same cap and will not delete an original name', async () => {
+    const t = backend();
+    await t.mutation(api.plan.ensureDefaults, {});
+    const id = 'c_abcd1234efgh';
+    await t.mutation(api.plan.addGuest, { guestId: id, name: 'Nia Okonkwo' });
+    await t.mutation(api.plan.seat, { guestId: id, groupId: 'group-1' });
+    for (const guest of published.slice(0, 9)) {
+      await t.mutation(api.plan.seat, { guestId: guest.id, groupId: 'group-1' });
+    }
+    await expect(t.mutation(api.plan.seat, { guestId: published[9].id, groupId: 'group-1' })).rejects.toThrow(/full/);
+    await expect(t.mutation(api.plan.removeGuest, { guestId: id })).rejects.toThrow(/Move that guest/);
+    await expect(t.mutation(api.plan.removeGuest, { guestId: 'g001' })).rejects.toThrow(/original list/);
+    let plan = await t.query(api.plan.get, {});
+    expect(plan.assignments.filter(seat => seat.groupId === 'group-1')).toHaveLength(10);
+    expect(plan.assignments).toContainEqual({ guestId: id, groupId: 'group-1' });
+    expect(plan.guests.find(guest => guest.guestId === 'g001')?.name).toBe(published[0].name);
+    await t.mutation(api.plan.unseat, { guestId: id });
+    await t.mutation(api.plan.removeGuest, { guestId: id });
+    plan = await t.query(api.plan.get, {});
+    expect(plan.guests.find(guest => guest.guestId === id)).toBeUndefined();
+    expect(plan.guests).toHaveLength(published.length);
+    expect(plan.assignments).toHaveLength(9);
+    expect(plan.assignments.find(seat => seat.guestId === 'g001')?.groupId).toBe('group-1');
+  });
+
+  it('keeps two same-name guests added at the same time, and imports one with a seat', async () => {
+    const t = backend();
+    await t.mutation(api.plan.ensureDefaults, {});
+    const first = 'c_aaaa1111bbbb';
+    const second = 'c_bbbb2222cccc';
+    await Promise.all([
+      t.mutation(api.plan.addGuest, { guestId: first, name: 'Pat Lee' }),
+      t.mutation(api.plan.addGuest, { guestId: second, name: 'Pat Lee' }),
+    ]);
+    let plan = await t.query(api.plan.get, {});
+    expect(plan.guests.filter(guest => guest.name === 'Pat Lee').map(guest => guest.guestId)).toEqual([first, second]);
+    const fresh = backend();
+    await fresh.mutation(api.plan.ensureDefaults, {});
+    await fresh.mutation(api.plan.importLocal, {
+      groups: [{ groupId: 'family', name: 'Family', sort: 1 }],
+      assignments: [{ guestId: first, groupId: 'family' }],
+      guests: [{ guestId: first, name: '  Pat   Lee ' }],
+    });
+    plan = await fresh.query(api.plan.get, {});
+    expect(plan.guests.find(guest => guest.guestId === first)?.name).toBe('Pat Lee');
+    expect(plan.assignments).toEqual([{ guestId: first, groupId: 'family' }]);
+    expect(plan.guests).toHaveLength(published.length + 1);
+    expect(plan.guests.find(guest => guest.guestId === 'g135')?.name).toBe('Athena');
+  });
 });

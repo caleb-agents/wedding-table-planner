@@ -1,10 +1,10 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { Guest, WeddingData } from './types';
 import { useWeddingState } from './hooks/useWeddingState';
 import { useSharedSync, type SharedSync } from './shared/useSharedSync';
 import { applyRemotePlan, assignmentsDiffer, decideSync, localImportPayload } from './shared/sync';
 import { acceptGuestPayload } from './utils/fragment';
-import { parseCSV } from './utils/validation';
+import { parseCSV, validateWeddingData } from './utils/validation';
 import { downloadFile, exportSeatingToCSV, exportToJSON } from './utils/storage';
 import { formatWeddingDate } from './utils/dates';
 import {
@@ -13,10 +13,12 @@ import {
   groupCount,
   isGroupFull,
   isGroupOverCapacity,
+  adaptLegacyPlan,
   nextGroupName,
   shouldConfirmReplace,
   sortedGroups,
 } from './utils/groups';
+import { createCustomGuestId, guestNameError, isCustomGuestId, normalizeGuestName, sameNameLabel } from './utils/guestName';
 import { generateId } from './utils/ids';
 import { createPublicWedding } from './data/sampleData';
 import './styles/app.css';
@@ -151,14 +153,19 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
   const [offerImport, setOfferImport] = useState(false);
   const [importDismissed, setImportDismissed] = useState(false);
   const [keptLocalNote, setKeptLocalNote] = useState(false);
+  const [addingGuest, setAddingGuest] = useState(false);
+  const [freshGuestId, setFreshGuestId] = useState<string | null>(null);
+  const [confirmGuestId, setConfirmGuestId] = useState<string | null>(null);
   const groupLayer = usePresence(Boolean(openGroupId));
   const chooserLayer = usePresence(Boolean(chooser));
   const pendingLayer = usePresence(Boolean(pending));
+  const addLayer = usePresence(addingGuest);
   const groupOpener = useRef<HTMLElement | null>(null);
   const chooserOpener = useRef<HTMLElement | null>(null);
+  const addOpener = useRef<HTMLElement | null>(null);
   const [heldGroup, setHeldGroup] = useState<{ id: string; name: string } | null>(null);
   const [heldChooser, setHeldChooser] = useState<Chooser | null>(null);
-  useDialogScroll(groupLayer.mounted || chooserLayer.mounted || pendingLayer.mounted);
+  useDialogScroll(groupLayer.mounted || chooserLayer.mounted || pendingLayer.mounted || addLayer.mounted);
 
   useEffect(() => {
     if (groupLayer.mounted) return;
@@ -173,15 +180,28 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
   }, [chooserLayer.mounted]);
 
   useEffect(() => {
-    if (!openGroupId && !chooser) return;
+    if (addLayer.mounted) return;
+    addOpener.current?.focus({ preventScroll: true });
+    addOpener.current = null;
+  }, [addLayer.mounted]);
+
+  useEffect(() => {
+    if (!freshGuestId) return;
+    const timer = window.setTimeout(() => setFreshGuestId(null), MOTION_MS);
+    return () => window.clearTimeout(timer);
+  }, [freshGuestId]);
+
+  useEffect(() => {
+    if (!openGroupId && !chooser && !addingGuest) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (chooser) setChooser(null);
+      else if (addingGuest) setAddingGuest(false);
       else setOpenGroupId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [openGroupId, chooser]);
+  }, [openGroupId, chooser, addingGuest]);
 
   useEffect(() => {
     if (!sync?.remote || sync.remote.groups.length === 0) return;
@@ -189,6 +209,7 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
       remoteReady: true,
       remoteAssignmentCount: sync.remote.assignments.length,
       localAssignmentCount: localAtStart.current.assignments.length,
+      localCustomGuestCount: localAtStart.current.guests.filter(guest => isCustomGuestId(guest.id)).length,
     });
     if (decision.offerImport && !importDismissed) setOfferImport(true);
     if (!decision.offerImport) setOfferImport(false);
@@ -234,7 +255,7 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
     try {
       await sync.importLocal(localImportPayload(localAtStart.current, allowed));
       setOfferImport(false);
-      setStatus('Imported this browser’s assignments into the shared plan.');
+      setStatus('Imported this browser’s plan into the shared plan.');
     } catch {
       setStatus('');
     }
@@ -298,6 +319,50 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
     setStatus(`Returned ${guest.name} to unassigned.`);
   }
 
+  async function addCustomGuest(name: string) {
+    const normalized = normalizeGuestName(name);
+    let id = createCustomGuestId();
+    for (let attempt = 0; attempt < 3 && data.guests.some(guest => guest.id === id); attempt += 1) {
+      id = createCustomGuestId();
+    }
+    const guest: Guest = {
+      id,
+      name: normalized,
+      side: '',
+      sheetBlock: '',
+      isChild: false,
+      rsvp: 'unknown',
+      tableId: null,
+    };
+    if (!sync) {
+      dispatch({ type: 'ADD_GUEST', guest });
+      setFreshGuestId(id);
+      setAddingGuest(false);
+      setStatus(`Added ${normalized}.`);
+      return;
+    }
+    await sync.addGuest(id, normalized);
+    setFreshGuestId(id);
+    setAddingGuest(false);
+    setStatus(`Added ${normalized}.`);
+  }
+
+  async function removeCustomGuest(guest: Guest) {
+    if (!isCustomGuestId(guest.id) || guest.tableId) return;
+    setConfirmGuestId(null);
+    if (!sync) {
+      dispatch({ type: 'REMOVE_GUEST', guestId: guest.id });
+      setStatus(`Removed ${guest.name}.`);
+      return;
+    }
+    try {
+      await sync.removeGuest(guest.id, guest.name);
+      setStatus(`Removed ${guest.name}.`);
+    } catch {
+      setStatus('');
+    }
+  }
+
   function connectionStatus(): string {
     if (offlineNote) return offlineNote;
     if (!sync) return status || 'Saved on this device.';
@@ -324,6 +389,16 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
           </p>
           </div>
           <div className="toolbar">
+            <button
+              type="button"
+              className="add-guest"
+              onClick={() => {
+                addOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                setAddingGuest(true);
+              }}
+            >
+              Add guest
+            </button>
             <button type="button" onClick={() => { if (sync) void sync.undo(); else dispatch({ type: 'UNDO' }); }} disabled={sync ? !sync.canUndo : state.undoStack.length === 0}>
               Undo
             </button>
@@ -346,9 +421,9 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
 
       {offerImport && (
         <div className="notice">
-          <p>This browser has assignments that are not on the shared plan. Import them only if the shared plan should use this browser’s groups.</p>
+          <p>This browser has assignments or added guests that are not on the shared plan. Import them only if the shared plan should use this browser’s groups.</p>
           <div className="backup-actions">
-            <button type="button" onClick={() => void sendLocalAssignments()}>Import assignments from this browser</button>
+            <button type="button" onClick={() => void sendLocalAssignments()}>Import this browser’s plan</button>
             <button type="button" className="quiet" onClick={() => { setOfferImport(false); setImportDismissed(true); }}>Keep the shared plan</button>
           </div>
         </div>
@@ -440,18 +515,34 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
               <p className="empty">{query ? 'No names match that search.' : 'Everyone is in a group.'}</p>
             ) : (
               <ul className="name-list">
-                {unassigned.map(guest => (
-                  <li key={guest.id}>
-                    <button type="button" className="name-button" onClick={() => {
-                      chooserOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-                      const next = { guestId: guest.id, mode: 'assign' as const };
-                      setHeldChooser(next);
-                      setChooser(next);
-                    }}>
-                      <span className="person-name">{guest.name}</span>
-                    </button>
-                  </li>
-                ))}
+                {unassigned.map(guest => {
+                  const label = sameNameLabel(guest, data.guests);
+                  const custom = isCustomGuestId(guest.id);
+                  return (
+                    <li key={guest.id} className={`name-row${freshGuestId === guest.id ? ' is-fresh' : ''}`}>
+                      <button type="button" className="name-button" aria-label={label} onClick={() => {
+                        chooserOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                        const next = { guestId: guest.id, mode: 'assign' as const };
+                        setHeldChooser(next);
+                        setChooser(next);
+                      }}>
+                        <span className="person-name">{guest.name}</span>
+                      </button>
+                      {custom && confirmGuestId !== guest.id && (
+                        <button type="button" className="texty" aria-label={`Remove ${label} from the list`} onClick={() => setConfirmGuestId(guest.id)}>
+                          Remove
+                        </button>
+                      )}
+                      {custom && confirmGuestId === guest.id && (
+                        <div className="confirm-inline">
+                          <span className="confirm-copy">Remove {guest.name}?</span>
+                          <button type="button" className="texty danger" onClick={() => void removeCustomGuest(guest)}>Remove guest</button>
+                          <button type="button" className="texty" onClick={() => setConfirmGuestId(null)}>Cancel</button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -471,8 +562,8 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
           </button>
         </div>
         <p className="hint">{sync
-          ? 'These guest names are public. Assignments are on a shared public plan anyone with this page can change. A file or private link stays on this device and is not uploaded automatically.'
-          : 'These guest names are public. Assignments stay in this browser. Import file and a private link still work if you need another list.'}</p>
+          ? 'These guest names are public. Added guests and assignments are on a shared public plan anyone with this page can change. A file or private link stays on this device and is not uploaded automatically.'
+          : 'These guest names are public. Assignments stay in this browser. Added guests stay in this browser too. Import file and a private link still work if you need another list.'}</p>
         <input
           ref={fileRef}
           type="file"
@@ -548,6 +639,15 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
             <button type="button" className="quiet" onClick={() => setChooser(null)}>Cancel</button>
           </div>
         </div>
+      )}
+
+      {addLayer.mounted && (
+        <AddGuestSheet
+          shown={addLayer.shown}
+          guests={data.guests}
+          onClose={() => setAddingGuest(false)}
+          onAdd={addCustomGuest}
+        />
       )}
 
       {pendingLayer.mounted && pending && (
@@ -800,8 +900,8 @@ function GroupPanel({
             {members.map(guest => (
               <li key={guest.id} className={`person${freshId === guest.id ? ' is-fresh' : ''}`}>
                 <span className="person-name">{guest.name}</span>
-                <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${guest.name}`}>Move</button>
-                <button type="button" onClick={() => onRemove(guest)} aria-label={`Remove ${guest.name}`}>Remove</button>
+                <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${sameNameLabel(guest, guests)}`}>Move</button>
+                <button type="button" onClick={() => onRemove(guest)} aria-label={`Remove ${sameNameLabel(guest, guests)}`}>Remove</button>
               </li>
             ))}
           </ul>
@@ -821,7 +921,7 @@ function GroupPanel({
                     type="button"
                     className="add-name"
                     disabled={full}
-                    aria-label={`Add ${guest.name} to ${group.name}`}
+                    aria-label={`Add ${sameNameLabel(guest, guests)} to ${group.name}`}
                     onClick={() => addGuest(guest)}
                   >
                     Add
@@ -846,7 +946,7 @@ function GroupPanel({
                         type="button"
                         className="quiet"
                         disabled={full}
-                        aria-label={`Move ${guest.name} from ${current} to ${group.name}`}
+                        aria-label={`Move ${sameNameLabel(guest, guests)} from ${current} to ${group.name}`}
                         onClick={() => addGuest(guest)}
                       >
                         Move here
@@ -864,6 +964,102 @@ function GroupPanel({
   );
 }
 
+function AddGuestSheet({
+  shown,
+  guests,
+  onClose,
+  onAdd,
+}: {
+  shown: boolean;
+  guests: Guest[];
+  onClose: () => void;
+  onAdd: (name: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const sending = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+  const name = normalizeGuestName(draft);
+  const duplicate = name.length > 0 && guests.some(guest => normalizeGuestName(guest.name).toLocaleLowerCase() === name.toLocaleLowerCase());
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (sending.current) return;
+    const problem = guestNameError(draft);
+    if (problem) {
+      setError(problem);
+      inputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    sending.current = true;
+    setError(null);
+    setPending(true);
+    try {
+      await onAdd(name);
+    } catch {
+      sending.current = false;
+      setPending(false);
+      setError('Not saved. The shared plan did not accept that change.');
+      inputRef.current?.focus({ preventScroll: true });
+    }
+  }
+
+  return (
+    <div
+      className={`overlay${shown ? '' : ' is-closing'}`}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) event.preventDefault();
+      }}
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-guest-title"
+        tabIndex={-1}
+        onClick={event => event.stopPropagation()}
+        onKeyDown={trapTab}
+      >
+        <div className="panel-head">
+          <h2 id="add-guest-title">Add guest</h2>
+          <button type="button" className="quiet" onClick={onClose}>Close</button>
+        </div>
+        <form className="add-form" onSubmit={event => void submit(event)}>
+          <label className="field-label" htmlFor="new-guest-name">Name</label>
+          <input
+            ref={inputRef}
+            id="new-guest-name"
+            className="search"
+            value={draft}
+            maxLength={120}
+            autoComplete="name"
+            autoCapitalize="words"
+            enterKeyHint="done"
+            aria-describedby={error ? 'new-guest-error' : duplicate ? 'new-guest-note' : undefined}
+            onChange={event => {
+              setDraft(event.target.value.slice(0, 120));
+              if (error) setError(null);
+            }}
+          />
+          {error && <p id="new-guest-error" className="field-error" role="alert">{error}</p>}
+          {!error && duplicate && <p id="new-guest-note" className="field-note">Someone already has this name. This still adds a separate person.</p>}
+          <div className="dialog-actions">
+            <button type="submit" className="primary" disabled={pending}>Add guest</button>
+            <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function matchesQuery(guest: Guest, query: string): boolean {
   if (!query) return true;
   return guest.name.toLowerCase().includes(query) || (guest.familyGroup ?? '').toLowerCase().includes(query);
@@ -876,6 +1072,7 @@ function unassignedCount(data: WeddingData): number {
 function weddingFromText(text: string): WeddingData | null {
   try {
     const parsed: unknown = JSON.parse(text);
+    if (validateWeddingData(parsed)) return adaptLegacyPlan(parsed);
     const accepted = acceptGuestPayload(parsed);
     if (accepted.ok) return accepted.wedding;
   } catch {

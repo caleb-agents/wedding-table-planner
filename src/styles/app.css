@@ -424,6 +424,45 @@ h2, h3 {
 
 .add-group { width: auto; margin-top: 4px; padding-left: 2px; }
 
+.toolbar .add-guest { font-weight: 700; white-space: nowrap; }
+
+.name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.name-row .name-button { flex: 1 1 160px; min-width: 0; }
+
+.name-row.is-fresh { animation: row-in 160ms ease; }
+
+.confirm-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0 4px 4px;
+}
+
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.add-form .search { margin: 0; }
+
+.field-label { font-weight: 700; }
+
+.field-error,
+.field-note { margin: 0; }
+
+.field-error { color: var(--warn); font-weight: 600; }
+
+.field-note { color: var(--muted); }
+
 .guest-fold {
   background: var(--card);
   border: 1px solid var(--line);
@@ -640,7 +679,8 @@ h2, h3 {
   .overlay::before,
   .sheet,
   .dialog,
-  .person.is-fresh {
+  .person.is-fresh,
+  .name-row.is-fresh {
     animation: none;
   }
 }
@@ -699,6 +739,8 @@ h2, h3 {
   }
   .context h1 { font-size: 1.15rem; }
   .context-top { flex-direction: column; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar .add-guest { flex: 1 0 100%; text-align: left; padding-left: 2px; }
   .workspace { padding: 22px 28px 36px; }
   .panel {
     border: 0;

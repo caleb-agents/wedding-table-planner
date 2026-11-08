@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
 import { resetFragmentStartupForTests } from '../utils/fragment';
-import { STORAGE_KEY, STORAGE_VERSION } from '../utils/storage';
+import { exportToJSON, STORAGE_KEY, STORAGE_VERSION } from '../utils/storage';
 import type { Guest, ImportedData, WeddingData } from '../types';
 
 function encodeFragment(data: ImportedData): string {
@@ -346,5 +346,90 @@ describe('group planner', () => {
     render(<App />);
     expect(screen.getByText('That link could not be read. Your saved list was not changed.')).toBeTruthy();
     expect(screen.getByText('Ada Fictional')).toBeTruthy();
+  });
+
+  it('adds a separate guest, keeps the original names, and restores focus', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.getByText(/135 names · 135 unassigned/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Add guest' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add guest' });
+    const input = within(dialog).getByLabelText('Name');
+    expect(document.activeElement).toBe(input);
+    expect(document.body.style.position).toBe('fixed');
+    await user.type(input, '   ');
+    await user.click(within(dialog).getByRole('button', { name: 'Add guest' }));
+    expect(within(dialog).getByRole('alert').textContent).toBe('Enter a name.');
+    expect(screen.getByText(/135 names · 135 unassigned/)).toBeTruthy();
+    await user.clear(input);
+    await user.type(input, `${'A'.repeat(81)}`);
+    await user.keyboard('{Enter}');
+    expect(within(dialog).getByRole('alert').textContent).toBe('Use 80 characters or fewer.');
+    await user.clear(input);
+    await user.type(input, '  Jean Huang  ');
+    expect(within(dialog).getByText(/separate person/)).toBeTruthy();
+    await user.tab();
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Add guest' }));
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Add guest' })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add guest' }));
+    });
+    expect(screen.getByText(/136 names · 136 unassigned/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Jean Huang/ })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Athena' })).toBeTruthy();
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as { data: WeddingData };
+    const added = stored.data.guests.filter(guest => guest.name === 'Jean Huang' && guest.id !== 'g001');
+    expect(added).toHaveLength(1);
+    expect(added[0].tableId).toBeNull();
+    expect(added[0].id.startsWith('c_')).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText(/135 names · 135 unassigned/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Jean Huang/ })).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Add guest' }));
+    const again = screen.getByRole('dialog', { name: 'Add guest' });
+    await user.type(within(again).getByLabelText('Name'), 'Nia Okonkwo');
+    await user.click(within(again).getByRole('button', { name: 'Add guest' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add guest' })).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
+    const panel = screen.getByRole('dialog', { name: 'Group 1' });
+    await user.type(within(panel).getByLabelText('Search names to add to Group 1'), 'Nia');
+    await user.click(within(panel).getByRole('button', { name: 'Add Nia Okonkwo to Group 1' }));
+    expect(within(panel).getByText('1/10')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Remove Nia Okonkwo from the list' })).toBeNull();
+    await user.click(within(panel).getByRole('button', { name: 'Remove Nia Okonkwo' }));
+    expect(within(panel).getByText('0/10')).toBeTruthy();
+    await user.click(within(panel).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Remove Nia Okonkwo from the list' }));
+    await user.click(screen.getByRole('button', { name: 'Remove guest' }));
+    expect(screen.queryByRole('button', { name: 'Nia Okonkwo' })).toBeNull();
+    expect(screen.getByText(/135 names · 135 unassigned/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Jean Huang' })).toBeTruthy();
+  });
+
+  it('reloads an added guest from a backup file', async () => {
+    const user = userEvent.setup();
+    const data = plan();
+    data.guests.push({
+      id: 'c_backupguest1',
+      name: 'Backup Guest',
+      side: '',
+      sheetBlock: '',
+      isChild: false,
+      rsvp: 'unknown',
+      tableId: null,
+    });
+    seed(plan());
+    render(<App />);
+    const input = document.querySelector('input[type="file"]');
+    expect(input).toBeTruthy();
+    const file = new File([exportToJSON(data)], 'backup.json', { type: 'application/json' });
+    await user.upload(input as HTMLInputElement, file);
+    expect(await screen.findByRole('button', { name: 'Backup Guest' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Ada Fictional' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Jean Huang' })).toBeNull();
   });
 });
