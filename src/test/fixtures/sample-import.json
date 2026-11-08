@@ -1,0 +1,71 @@
+{
+  "source": {
+    "fileId": "fictional-file-id",
+    "name": "Fictional Garden Wedding",
+    "tab": "Guest List"
+  },
+  "weddingDate": "2027-01-23",
+  "tables": [],
+  "guests": [
+    {
+      "id": "fix_b1",
+      "name": "Pixel Starlight",
+      "side": "bride",
+      "sheetBlock": "Family block",
+      "isChild": false,
+      "rsvp": "confirmed",
+      "tableId": null,
+      "familyGroup": "Starlight",
+      "cardSent": "2026-11-02",
+      "events": { "ceremony": true, "reception": true }
+    },
+    {
+      "id": "fix_b2",
+      "name": "Nova Starlight",
+      "side": "bride",
+      "sheetBlock": "Family block",
+      "isChild": true,
+      "rsvp": "confirmed",
+      "tableId": null,
+      "familyGroup": "Starlight"
+    },
+    {
+      "id": "fix_g1",
+      "name": "Atlas Moonbeam",
+      "side": "groom",
+      "sheetBlock": "Family block",
+      "isChild": false,
+      "rsvp": "unconfirmed",
+      "tableId": null
+    },
+    {
+      "id": "fix_m1",
+      "name": "Luna Cloudwhisper",
+      "side": "mutual",
+      "sheetBlock": "Friends block",
+      "isChild": false,
+      "rsvp": "unknown",
+      "tableId": null
+    },
+    {
+      "id": "fix_c1",
+      "name": "Sage Willowbrook",
+      "side": "colleagues",
+      "sheetBlock": "Work block",
+      "isChild": false,
+      "rsvp": "confirmed",
+      "tableId": null,
+      "cardSent": "2026-12-01"
+    },
+    {
+      "id": "fix_n1",
+      "name": "Fern Meadowlark",
+      "side": "neighbours",
+      "sheetBlock": "Street block",
+      "isChild": false,
+      "rsvp": "unknown",
+      "tableId": null,
+      "events": { "welcomeDinner": false }
+    }
+  ]
+}

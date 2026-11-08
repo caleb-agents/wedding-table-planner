@@ -1,0 +1,129 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { 
+  saveToStorage, 
+  loadFromStorage, 
+  clearStorage,
+  hasStoredData,
+  exportToJSON,
+  exportSeatingToCSV,
+} from '../utils/storage';
+import { createSampleWedding } from '../data/sampleData';
+import type { WeddingData } from '../types';
+
+describe('storage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+  
+  describe('saveToStorage / loadFromStorage', () => {
+    it('saves and loads wedding data', () => {
+      const data = createSampleWedding();
+      data.name = 'Test Wedding';
+      
+      saveToStorage(data);
+      const loaded = loadFromStorage();
+      
+      expect(loaded.name).toBe('Test Wedding');
+      expect(loaded.guests.length).toBe(data.guests.length);
+    });
+    
+    it('returns sample data when nothing stored', () => {
+      const loaded = loadFromStorage();
+      
+      expect(loaded.isDemo).toBe(true);
+      expect(loaded.guests.length).toBeGreaterThan(0);
+    });
+    
+    it('returns sample data for invalid stored data', () => {
+      localStorage.setItem('wedding_table_planner_data', 'invalid json');
+      
+      const loaded = loadFromStorage();
+      
+      expect(loaded.isDemo).toBe(true);
+    });
+  });
+  
+  describe('clearStorage / hasStoredData', () => {
+    it('detects stored data', () => {
+      expect(hasStoredData()).toBe(false);
+      
+      saveToStorage(createSampleWedding());
+      
+      expect(hasStoredData()).toBe(true);
+    });
+    
+    it('clears stored data', () => {
+      saveToStorage(createSampleWedding());
+      clearStorage();
+      
+      expect(hasStoredData()).toBe(false);
+    });
+  });
+  
+  describe('exportToJSON', () => {
+    it('exports valid JSON with metadata', () => {
+      const data = createSampleWedding();
+      const json = exportToJSON(data);
+      const parsed = JSON.parse(json);
+      
+      expect(parsed.id).toBe(data.id);
+      expect(parsed.guests).toHaveLength(data.guests.length);
+      expect(parsed.exportedAt).toBeDefined();
+    });
+  });
+  
+  describe('exportSeatingToCSV', () => {
+    it('exports CSV with headers', () => {
+      const data = createSampleWedding();
+      const csv = exportSeatingToCSV(data);
+      const lines = csv.split('\n');
+      
+      expect(lines[0]).toBe('Table,Guest Name,Side,RSVP,Is Child,Family Group');
+      expect(lines.length).toBeGreaterThan(1);
+    });
+    
+    it('sorts by table then name', () => {
+      const data: WeddingData = {
+        id: 'test',
+        name: 'Test',
+        guests: [
+          { id: 'g1', name: 'Zoe', side: 'bride', sheetBlock: 'A', isChild: false, rsvp: 'confirmed', tableId: 't1' },
+          { id: 'g2', name: 'Alice', side: 'bride', sheetBlock: 'A', isChild: false, rsvp: 'confirmed', tableId: 't1' },
+        ],
+        tables: [
+          { id: 't1', name: 'Table 1', capacity: 10, x: 0, y: 0, type: 'round' },
+        ],
+        assignments: [
+          { guestId: 'g1', tableId: 't1' },
+          { guestId: 'g2', tableId: 't1' },
+        ],
+        isDemo: false,
+        lastModified: Date.now(),
+      };
+      
+      const csv = exportSeatingToCSV(data);
+      const lines = csv.split('\n');
+      
+      expect(lines[1]).toContain('Alice');
+      expect(lines[2]).toContain('Zoe');
+    });
+    
+    it('shows unseated guests as "Unseated"', () => {
+      const data: WeddingData = {
+        id: 'test',
+        name: 'Test',
+        guests: [
+          { id: 'g1', name: 'Bob', side: 'groom', sheetBlock: 'A', isChild: false, rsvp: 'unknown', tableId: null },
+        ],
+        tables: [],
+        assignments: [],
+        isDemo: false,
+        lastModified: Date.now(),
+      };
+      
+      const csv = exportSeatingToCSV(data);
+      
+      expect(csv).toContain('Unseated,Bob');
+    });
+  });
+});
