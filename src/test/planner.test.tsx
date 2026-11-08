@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../App';
 import { resetFragmentStartupForTests } from '../utils/fragment';
@@ -232,16 +232,68 @@ describe('group planner', () => {
     const panel = screen.getByRole('dialog', { name: 'Group 1' });
     expect(panel.querySelectorAll('.sheet-scroll').length).toBe(1);
     expect(panel.querySelector('.member-well')?.getAttribute('style') ?? '').not.toMatch(/overflow/i);
+    const opener = screen.getByRole('button', { name: 'Open Group 1' });
+    expect(panel.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(within(panel).getByLabelText('Search names to add to Group 1'));
     await user.click(within(panel).getByRole('button', { name: 'Close' }));
-    expect(document.body.style.position).toBe('');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.body.style.position).toBe('');
+    });
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('keeps the search focused when Enter adds a name, and does not open it automatically', async () => {
+    const user = userEvent.setup();
+    seed(plan());
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
+    const panel = screen.getByRole('dialog', { name: 'Group 1' });
+    const search = within(panel).getByLabelText('Search names to add to Group 1');
+    expect(document.activeElement).not.toBe(search);
+    await user.click(search);
+    await user.type(search, 'Ada');
+    await user.keyboard('{Enter}');
+    expect(within(panel).getByText('1/10')).toBeTruthy();
+    expect(document.activeElement).toBe(search);
+    expect((search as HTMLInputElement).value).toBe('Ada');
+  });
+
+  it('follows a shrinking visual viewport while a table is open', async () => {
+    const user = userEvent.setup();
+    const listeners = new Set<() => void>();
+    const viewport = {
+      height: 844,
+      offsetTop: 0,
+      addEventListener: (_type: string, listener: EventListener) => { listeners.add(listener as () => void); },
+      removeEventListener: (_type: string, listener: EventListener) => { listeners.delete(listener as () => void); },
+    };
+    const previous = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+    try {
+      seed(plan());
+      render(<App />);
+      await user.click(screen.getByRole('button', { name: 'Open Group 1' }));
+      expect(document.documentElement.style.getPropertyValue('--vv-height')).toBe('844px');
+      viewport.height = 390;
+      viewport.offsetTop = 18;
+      listeners.forEach(listener => listener());
+      expect(document.documentElement.style.getPropertyValue('--vv-height')).toBe('390px');
+      expect(document.documentElement.style.getPropertyValue('--vv-offset')).toBe('18px');
+    } finally {
+      if (previous) Object.defineProperty(window, 'visualViewport', previous);
+      else delete (window as { visualViewport?: VisualViewport }).visualViewport;
+    }
   });
 
   it('opens the published names without an import', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'Wedding group planner' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Jean Huang' })).toBeTruthy();
-    expect(screen.getByText('These guest names are public. Assignments stay in this browser.')).toBeTruthy();
+    const context = screen.getByRole('heading', { name: 'Wedding group planner' }).closest('header');
+    expect(context?.textContent).not.toMatch(/These guest names are public/);
+    expect(context?.textContent).toMatch(/Saved on this device/);
+    expect(screen.getByText(/These guest names are public. Assignments stay in this browser./)).toBeTruthy();
     expect(screen.queryByText(/sample/i)).toBeNull();
   });
 

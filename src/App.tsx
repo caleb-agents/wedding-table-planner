@@ -23,6 +23,46 @@ import './styles/app.css';
 
 type Chooser = { guestId: string; mode: 'assign' | 'move' };
 
+const MOTION_MS = 170;
+
+function usePresence(open: boolean) {
+  const [mounted, setMounted] = useState(open);
+  const [shown, setShown] = useState(open);
+  if (open && !mounted) {
+    setMounted(true);
+    setShown(true);
+  }
+  if (!open && shown) setShown(false);
+  useEffect(() => {
+    if (open || !mounted) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const timer = window.setTimeout(() => setMounted(false), reduce ? 0 : MOTION_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, mounted]);
+  return { mounted, shown };
+}
+
+function focusables(root: HTMLElement) {
+  return [...root.querySelectorAll<HTMLElement>('button, input, textarea, select, a[href]')]
+    .filter(node => !node.hasAttribute('disabled') && !node.hidden);
+}
+
+function trapTab(event: { key: string; shiftKey: boolean; preventDefault: () => void; currentTarget: HTMLElement }) {
+  if (event.key !== 'Tab') return;
+  const items = focusables(event.currentTarget);
+  if (items.length === 0) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === event.currentTarget)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || active === event.currentTarget)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function useDialogScroll(open: boolean) {
   useEffect(() => {
     if (!open) return;
@@ -111,8 +151,26 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
   const [offerImport, setOfferImport] = useState(false);
   const [importDismissed, setImportDismissed] = useState(false);
   const [keptLocalNote, setKeptLocalNote] = useState(false);
-  const dialogOpen = Boolean(openGroupId || chooser || pending);
-  useDialogScroll(dialogOpen);
+  const groupLayer = usePresence(Boolean(openGroupId));
+  const chooserLayer = usePresence(Boolean(chooser));
+  const pendingLayer = usePresence(Boolean(pending));
+  const groupOpener = useRef<HTMLElement | null>(null);
+  const chooserOpener = useRef<HTMLElement | null>(null);
+  const [heldGroup, setHeldGroup] = useState<{ id: string; name: string } | null>(null);
+  const [heldChooser, setHeldChooser] = useState<Chooser | null>(null);
+  useDialogScroll(groupLayer.mounted || chooserLayer.mounted || pendingLayer.mounted);
+
+  useEffect(() => {
+    if (groupLayer.mounted) return;
+    groupOpener.current?.focus({ preventScroll: true });
+    groupOpener.current = null;
+  }, [groupLayer.mounted]);
+
+  useEffect(() => {
+    if (chooserLayer.mounted) return;
+    chooserOpener.current?.focus({ preventScroll: true });
+    chooserOpener.current = null;
+  }, [chooserLayer.mounted]);
 
   useEffect(() => {
     if (!openGroupId && !chooser) return;
@@ -151,8 +209,10 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
     .filter(guest => matchesQuery(guest, query))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const groups = sortedGroups(data.tables);
-  const chooserGuest = chooser ? data.guests.find(guest => guest.id === chooser.guestId) ?? null : null;
   const openGroup = openGroupId ? groups.find(group => group.id === openGroupId) ?? null : null;
+  const panelGroup = openGroup ?? (groupLayer.mounted ? heldGroup : null);
+  const panelChooser = chooser ?? (chooserLayer.mounted ? heldChooser : null);
+  const panelChooserGuest = panelChooser ? data.guests.find(guest => guest.id === panelChooser.guestId) ?? null : null;
 
   function offerListImport(next: WeddingData) {
     if (sync) {
@@ -272,11 +332,8 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
             </button>
           </div>
         </div>
-          <p className="hint">{sync
-            ? 'These guest names are public. Assignments are on a shared public plan anyone with this page can change.'
-            : 'These guest names are public. Assignments stay in this browser.'}</p>
           <p className="status" role="status">{connectionStatus()}</p>
-          {keptLocalNote && <p className="hint">Showing the shared plan. Assignments saved in this browser were not uploaded.</p>}
+          {keptLocalNote && <p className="status">Showing the shared plan. Assignments saved in this browser were not uploaded.</p>}
       </header>
       <div className="workspace">
 
@@ -311,7 +368,11 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
                 name={group.name}
                 guests={data.guests}
                 selected={openGroupId === group.id}
-                onOpen={() => setOpenGroupId(group.id)}
+                onOpen={() => {
+                  groupOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                  setHeldGroup({ id: group.id, name: group.name });
+                  setOpenGroupId(group.id);
+                }}
                 onRename={nextName => {
                   if (!sync) {
                     dispatch({ type: 'UPDATE_TABLE', tableId: group.id, updates: { name: nextName } });
@@ -381,7 +442,12 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
               <ul className="name-list">
                 {unassigned.map(guest => (
                   <li key={guest.id}>
-                    <button type="button" className="name-button" onClick={() => setChooser({ guestId: guest.id, mode: 'assign' })}>
+                    <button type="button" className="name-button" onClick={() => {
+                      chooserOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                      const next = { guestId: guest.id, mode: 'assign' as const };
+                      setHeldChooser(next);
+                      setChooser(next);
+                    }}>
                       <span className="person-name">{guest.name}</span>
                     </button>
                   </li>
@@ -405,8 +471,8 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
           </button>
         </div>
         <p className="hint">{sync
-          ? 'Guest names on this page are published. The shared plan is public. A file or private link stays on this device and is not uploaded automatically.'
-          : 'Guest names on this page are published with the site. Assignments stay on this device. Import file and a private link still work if you need another list.'}</p>
+          ? 'These guest names are public. Assignments are on a shared public plan anyone with this page can change. A file or private link stays on this device and is not uploaded automatically.'
+          : 'These guest names are public. Assignments stay in this browser. Import file and a private link still work if you need another list.'}</p>
         <input
           ref={fileRef}
           type="file"
@@ -421,40 +487,48 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
       </details>
       </div>
 
-      {openGroup && (
+      {groupLayer.mounted && panelGroup && (
         <GroupPanel
-          group={openGroup}
+          shown={groupLayer.shown}
+          group={panelGroup}
           guests={data.guests}
           groupName={groupId => data.tables.find(table => table.id === groupId)?.name ?? 'another group'}
           onClose={() => setOpenGroupId(null)}
-          onAdd={guest => assignTo(guest, openGroup.id)}
+          onAdd={guest => assignTo(guest, panelGroup.id)}
           onRemove={returnGuest}
-          onMove={guestId => setChooser({ guestId, mode: 'move' })}
+          onMove={guestId => {
+            chooserOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            const next = { guestId, mode: 'move' as const };
+            setHeldChooser(next);
+            setChooser(next);
+          }}
         />
       )}
 
-      {chooser && chooserGuest && (
-        <div className="overlay" onClick={() => setChooser(null)}>
+      {chooserLayer.mounted && panelChooser && panelChooserGuest && (
+        <div className={`overlay${chooserLayer.shown ? '' : ' is-closing'}`} onMouseDown={event => { if (event.target === event.currentTarget) event.preventDefault(); }} onClick={() => setChooser(null)}>
           <div
             className="sheet"
             role="dialog"
             aria-modal="true"
             aria-labelledby="chooser-title"
+            tabIndex={-1}
             onClick={event => event.stopPropagation()}
+            onKeyDown={trapTab}
           >
             <h2 id="chooser-title">Choose a group</h2>
-            <p className="person-name">{chooserGuest.name}</p>
+            <p className="person-name">{panelChooserGuest.name}</p>
             <ul className="chooser-list">
-              {chooser.mode === 'move' && (
+              {panelChooser.mode === 'move' && (
                 <li>
-                  <button type="button" className="chooser-option" onClick={() => returnGuest(chooserGuest)}>
+                  <button type="button" className="chooser-option" onClick={() => returnGuest(panelChooserGuest)}>
                     <span>Unassigned</span>
                   </button>
                 </li>
               )}
               {groups.map(group => {
                 const count = groupCount(data.guests, group.id);
-                const here = chooserGuest.tableId === group.id;
+                const here = panelChooserGuest.tableId === group.id;
                 const blocked = !here && (isGroupFull(count) || isGroupOverCapacity(count));
                 return (
                   <li key={group.id}>
@@ -462,7 +536,7 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
                       type="button"
                       className="chooser-option"
                       disabled={blocked || here}
-                      onClick={() => assignTo(chooserGuest, group.id)}
+                      onClick={() => assignTo(panelChooserGuest, group.id)}
                     >
                       <span>{group.name}</span>
                       <span>{count}/{GROUP_CAPACITY}{blocked ? ' · Full' : ''}{here ? ' · Here' : ''}</span>
@@ -476,9 +550,9 @@ function Planner({ sync, offlineNote }: { sync: SharedSync | null; offlineNote?:
         </div>
       )}
 
-      {pending && (
-        <div className="overlay">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="replace-title">
+      {pendingLayer.mounted && pending && (
+        <div className={`overlay${pendingLayer.shown ? '' : ' is-closing'}`}>
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="replace-title" tabIndex={-1} onKeyDown={trapTab}>
             <h2 id="replace-title">Replace the saved list?</h2>
             <p>
               People are already assigned in {data.name}. Replacing overwrites those groups with {pending.guests.length} names from the new list.
@@ -588,6 +662,7 @@ function GroupCard({
 }
 
 function GroupPanel({
+  shown,
   group,
   guests,
   groupName,
@@ -596,6 +671,7 @@ function GroupPanel({
   onRemove,
   onMove,
 }: {
+  shown: boolean;
   group: { id: string; name: string };
   guests: Guest[];
   groupName: (groupId: string) => string;
@@ -605,13 +681,20 @@ function GroupPanel({
   onMove: (guestId: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [freshId, setFreshId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const [raised, setRaised] = useState(false);
   useEffect(() => {
-    searchRef.current?.focus({ preventScroll: true });
+    dialogRef.current?.focus({ preventScroll: true });
   }, []);
+  useEffect(() => {
+    if (!freshId) return;
+    const timer = window.setTimeout(() => setFreshId(null), MOTION_MS);
+    return () => window.clearTimeout(timer);
+  }, [freshId]);
 
   function onSearch(value: string) {
     setQuery(value);
@@ -620,12 +703,36 @@ function GroupPanel({
       const results = resultsRef.current;
       if (!list || !results) return;
       if (!value.trim()) {
-        list.scrollTop = 0;
+        if (list.scrollTop !== 0) list.scrollTop = 0;
         return;
       }
       const top = results.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
-      list.scrollTop = Math.max(0, top - 8);
+      const next = Math.max(0, top - 8);
+      if (Math.abs(list.scrollTop - next) > 1) list.scrollTop = next;
     });
+  }
+
+  function keepSearch(action: () => void) {
+    const search = searchRef.current;
+    const restore = document.activeElement === search;
+    action();
+    if (!restore || !search) return;
+    search.focus({ preventScroll: true });
+    requestAnimationFrame(() => search.focus({ preventScroll: true }));
+  }
+
+  function addGuest(guest: Guest) {
+    keepSearch(() => onAdd(guest));
+    setFreshId(guest.id);
+  }
+
+  function onSearchKey(event: { key: string; preventDefault: () => void }) {
+    if (event.key !== 'Enter') return;
+    const button = resultsRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    if (!button || !query.trim()) return;
+    event.preventDefault();
+    button.click();
+    searchRef.current?.focus({ preventScroll: true });
   }
   const members = guestsInGroup(guests, group.id);
   const count = members.length;
@@ -641,18 +748,21 @@ function GroupPanel({
 
   return (
     <div
-      className="overlay"
+      className={`overlay${shown ? '' : ' is-closing'}`}
       onMouseDown={event => {
         if (event.target === event.currentTarget) event.preventDefault();
       }}
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="sheet group-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="group-panel-title"
+        tabIndex={-1}
         onClick={event => event.stopPropagation()}
+        onKeyDown={trapTab}
       >
         <div className={`sheet-bar${raised ? ' is-raised' : ''}`}>
           <div className="panel-head">
@@ -674,6 +784,7 @@ function GroupPanel({
             placeholder="Search names to add"
             aria-label={`Search names to add to ${group.name}`}
             onChange={event => onSearch(event.target.value)}
+            onKeyDown={onSearchKey}
           />
         </div>
         <div
@@ -687,7 +798,7 @@ function GroupPanel({
         ) : (
           <ul className="member-well">
             {members.map(guest => (
-              <li key={guest.id} className="person">
+              <li key={guest.id} className={`person${freshId === guest.id ? ' is-fresh' : ''}`}>
                 <span className="person-name">{guest.name}</span>
                 <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${guest.name}`}>Move</button>
                 <button type="button" onClick={() => onRemove(guest)} aria-label={`Remove ${guest.name}`}>Remove</button>
@@ -711,7 +822,7 @@ function GroupPanel({
                     className="add-name"
                     disabled={full}
                     aria-label={`Add ${guest.name} to ${group.name}`}
-                    onClick={() => onAdd(guest)}
+                    onClick={() => addGuest(guest)}
                   >
                     Add
                   </button>
@@ -736,7 +847,7 @@ function GroupPanel({
                         className="quiet"
                         disabled={full}
                         aria-label={`Move ${guest.name} from ${current} to ${group.name}`}
-                        onClick={() => onAdd(guest)}
+                        onClick={() => addGuest(guest)}
                       >
                         Move here
                       </button>

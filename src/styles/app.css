@@ -497,18 +497,31 @@ h2, h3 {
   top: var(--vv-offset, 0px);
   height: var(--vv-height, 100dvh);
   z-index: 20;
-  background: rgba(47, 12, 48, 0.46);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding: 0;
   overflow: hidden;
   overscroll-behavior: none;
+  background: transparent;
+}
+
+.overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(47, 12, 48, 0.46);
+  animation: scrim-in 160ms ease;
+}
+
+.overlay.is-closing { pointer-events: none; }
+
+.overlay.is-closing::before {
+  animation: scrim-out 160ms ease forwards;
 }
 
 .sheet, .dialog {
   width: min(480px, 100%);
-  background: white;
   border-radius: 12px 12px 0 0;
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   box-shadow: 0 12px 40px rgba(47, 12, 48, 0.22);
@@ -518,6 +531,15 @@ h2, h3 {
   flex-direction: column;
   gap: 8px;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  animation: sheet-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.overlay.is-closing .sheet,
+.overlay.is-closing .dialog {
+  animation: sheet-out 160ms ease forwards;
 }
 
 .dialog {
@@ -583,6 +605,45 @@ h2, h3 {
 }
 
 .empty { color: var(--muted); margin: 8px 0; }
+
+.person.is-fresh {
+  animation: row-in 160ms ease;
+}
+
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(20px); }
+  to { transform: none; }
+}
+
+@keyframes sheet-out {
+  from { transform: none; }
+  to { transform: translateY(16px); }
+}
+
+@keyframes row-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .overlay::before,
+  .sheet,
+  .dialog,
+  .person.is-fresh {
+    animation: none;
+  }
+}
 
 .context button:focus-visible { outline-color: #fff; }
 
