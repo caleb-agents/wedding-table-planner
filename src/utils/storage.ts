@@ -1,6 +1,7 @@
 import type { WeddingData } from '../types';
 import { validateWeddingData } from './validation';
 import { createSampleWedding } from '../data/sampleData';
+import { adaptLegacyPlan } from './groups';
 
 export const STORAGE_KEY = 'wedding_table_planner_data';
 export const STORAGE_VERSION = 1;
@@ -38,12 +39,12 @@ export function loadFromStorage(): WeddingData {
     
     if (parsed && typeof parsed === 'object' && 'version' in parsed && 'data' in parsed) {
       if (validateWeddingData(parsed.data)) {
-        return parsed.data;
+        return adaptLegacyPlan(parsed.data);
       }
     }
     
     if (validateWeddingData(parsed)) {
-      return parsed;
+      return adaptLegacyPlan(parsed);
     }
     
     console.warn('Invalid data in localStorage, returning sample');
@@ -79,7 +80,7 @@ export function exportToJSON(data: WeddingData): string {
 }
 
 export function exportSeatingToCSV(data: WeddingData): string {
-  const lines: string[] = ['Table,Guest Name,Side,RSVP,Is Child,Family Group'];
+  const lines: string[] = ['Group,Guest Name,Side,RSVP,Is Child,Family Group'];
   
   const tableMap = new Map(data.tables.map(t => [t.id, t.name]));
   
@@ -91,7 +92,7 @@ export function exportSeatingToCSV(data: WeddingData): string {
   });
   
   for (const guest of sortedGuests) {
-    const tableName = guest.tableId ? tableMap.get(guest.tableId) || 'Unknown' : 'Unseated';
+    const tableName = guest.tableId ? tableMap.get(guest.tableId) || 'Unknown' : 'Unassigned';
     const row = [
       escapeCSV(tableName),
       escapeCSV(guest.name),

@@ -1,5 +1,6 @@
 import '@testing-library/react';
 import { vi, afterEach } from 'vitest';
+import { resetFragmentStartupForTests } from '../utils/fragment';
 
 if (typeof window.matchMedia !== 'function') {
   window.matchMedia = (query: string) => ({
@@ -44,5 +45,7 @@ Object.defineProperty(window, 'localStorage', {
 
 afterEach(() => {
   localStorageMock.store = {};
+  resetFragmentStartupForTests();
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   vi.clearAllMocks();
 });

@@ -98,10 +98,9 @@ describe('convertImportedData', () => {
     
     const result = convertImportedData(imported);
     
-    expect(result.tables.length).toBe(15); // 1 head + 14 round
-    expect(result.tables[0].type).toBe('head');
-    expect(result.tables[0].name).toBe('Head Table');
-    expect(result.tables[1].capacity).toBe(10);
+    expect(result.tables).toHaveLength(14);
+    expect(result.tables.map(table => table.name)).toEqual(Array.from({ length: 14 }, (_, index) => `Group ${index + 1}`));
+    expect(result.tables.every(table => table.capacity === 10 && table.type === 'round')).toBe(true);
     expect(result.isDemo).toBe(false);
   });
   
@@ -157,7 +156,7 @@ describe('exact supplied guest schema', () => {
     const wedding = convertImportedData(fixture);
 
     expect(wedding.isDemo).toBe(false);
-    expect(wedding.suggestedTables).toBe(true);
+    expect(wedding.suggestedTables).toBeUndefined();
     expect(wedding.name).toBe('Fictional Garden Wedding');
     expect(wedding.weddingDate).toBe('2027-01-23');
     expect(wedding.guests).toHaveLength(fixture.guests.length);
@@ -179,16 +178,14 @@ describe('exact supplied guest schema', () => {
     expect(sameSheetBlock.length).toBeGreaterThan(explicitFamilies.length);
   });
 
-  it('offers 14 editable tables of 10 plus a head table when tables is empty', () => {
+  it('creates exactly 14 groups of 10 and no head table when tables is empty', () => {
     const wedding = convertImportedData(fixture);
-    const rounds = wedding.tables.filter(table => table.type === 'round');
-    const head = wedding.tables.find(table => table.type === 'head');
 
-    expect(rounds).toHaveLength(14);
-    expect(rounds.every(table => table.capacity === 10)).toBe(true);
-    expect(head?.name).toBe('Head Table');
-    expect(head?.capacity).toBe(12);
-    expect(new Set(wedding.tables.map(table => table.id)).size).toBe(15);
+    expect(wedding.tables).toHaveLength(14);
+    expect(wedding.tables.map(table => table.name)).toEqual(Array.from({ length: 14 }, (_, index) => `Group ${index + 1}`));
+    expect(wedding.tables.every(table => table.capacity === 10 && table.type === 'round')).toBe(true);
+    expect(wedding.tables.some(table => /head/i.test(table.name))).toBe(false);
+    expect(new Set(wedding.tables.map(table => table.id)).size).toBe(14);
   });
 
   it('keeps a 135-guest list with five sides and the known RSVP split, without inferring groups', () => {
@@ -262,13 +259,12 @@ describe('exact supplied guest schema', () => {
 });
 
 describe('createDefaultTables', () => {
-  it('creates 15 tables with correct layout', () => {
+  it('creates 14 groups of 10', () => {
     const tables = createDefaultTables();
     
-    expect(tables.length).toBe(15);
-    expect(tables[0].type).toBe('head');
-    expect(tables[0].capacity).toBe(12);
-    expect(tables.filter(t => t.type === 'round').length).toBe(14);
+    expect(tables).toHaveLength(14);
+    expect(tables.every(table => table.capacity === 10 && table.type === 'round')).toBe(true);
+    expect(tables.map(table => table.name)).toEqual(Array.from({ length: 14 }, (_, index) => `Group ${index + 1}`));
   });
   
   it('creates tables with unique IDs', () => {

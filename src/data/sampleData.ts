@@ -58,15 +58,10 @@ const SAMPLE_GUESTS: Omit<Guest, 'tableId'>[] = [
 ];
 
 const SAMPLE_TABLES: Table[] = [
-  { id: 'demo_head', name: 'Head Table', capacity: 8, x: 400, y: 80, type: 'head' },
-  { id: 'demo_t1', name: 'Table 1', capacity: 10, x: 120, y: 220, type: 'round' },
-  { id: 'demo_t2', name: 'Table 2', capacity: 10, x: 300, y: 220, type: 'round' },
-  { id: 'demo_t3', name: 'Table 3', capacity: 10, x: 480, y: 220, type: 'round' },
-  { id: 'demo_t4', name: 'Table 4', capacity: 10, x: 660, y: 220, type: 'round' },
-  { id: 'demo_t5', name: 'Table 5', capacity: 10, x: 120, y: 380, type: 'round' },
-  { id: 'demo_t6', name: 'Table 6', capacity: 10, x: 300, y: 380, type: 'round' },
-  { id: 'demo_t7', name: 'Table 7', capacity: 10, x: 480, y: 380, type: 'round' },
-  { id: 'demo_t8', name: 'Table 8', capacity: 10, x: 660, y: 380, type: 'round' },
+  { id: 'demo_g1', name: 'Group 1', capacity: 10, x: 0, y: 0, type: 'round' },
+  { id: 'demo_g2', name: 'Group 2', capacity: 10, x: 0, y: 0, type: 'round' },
+  { id: 'demo_g3', name: 'Group 3', capacity: 10, x: 0, y: 0, type: 'round' },
+  { id: 'demo_g4', name: 'Group 4', capacity: 10, x: 0, y: 0, type: 'round' },
 ];
 
 export function createSampleWedding(): WeddingData {
@@ -74,7 +69,7 @@ export function createSampleWedding(): WeddingData {
   
   return {
     id: generateId('demo'),
-    name: '✨ Sample Wedding (Demo Data)',
+    name: 'Sample list',
     weddingDate: '2027-06-15',
     guests,
     tables: SAMPLE_TABLES,

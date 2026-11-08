@@ -1,392 +1,396 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
+import type { Guest, WeddingData } from './types';
 import { useWeddingState } from './hooks/useWeddingState';
-import { useMediaQuery } from './hooks/useMediaQuery';
-import { Venue } from './components/Venue';
-import { Sidebar } from './components/Sidebar';
-import { Toolbar } from './components/Toolbar';
-import { ImportModal } from './components/ImportModal';
-import { OnboardingPanel } from './components/OnboardingPanel';
-import { PrintView } from './components/PrintView';
-import { TableEditor } from './components/TableEditor';
-import { TablePickerSheet } from './components/TablePickerSheet';
-import { TableDetailSheet } from './components/TableDetailSheet';
-import { AddGuestsSheet } from './components/AddGuestsSheet';
-import { GuestPanel, MobileTabBar, TablePanel } from './components/MobilePanels';
-import { OverflowMenu } from './components/OverflowMenu';
-import type { WeddingData } from './types';
-import { formatWeddingDate } from './utils/dates';
-import { generateId } from './utils/ids';
+import { acceptGuestPayload } from './utils/fragment';
+import { parseCSV } from './utils/validation';
 import { downloadFile, exportSeatingToCSV, exportToJSON } from './utils/storage';
-import './styles/pixel-art.css';
+import { formatWeddingDate } from './utils/dates';
+import {
+  GROUP_CAPACITY,
+  guestsInGroup,
+  groupCount,
+  isGroupFull,
+  isGroupOverCapacity,
+  nextGroupName,
+  shouldConfirmReplace,
+  sortedGroups,
+} from './utils/groups';
+import { generateId } from './utils/ids';
+import './styles/app.css';
 
-type MobileTab = 'guests' | 'tables' | 'venue';
+type Chooser = { guestId: string; mode: 'assign' | 'move' };
 
-function App() {
-  const {
-    state,
-    dispatch,
-    statistics,
-    filteredGuests,
-    filteredUnseatedGuests,
-    getGuestsAtTable,
-    getTableCapacityInfo,
-    canAssignGuest,
-    canAssignGroup,
-    getFamilyGroups,
-  } = useWeddingState();
-
-  const isMobile = useMediaQuery('(max-width: 899px)');
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [editingTableId, setEditingTableId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null);
-  const [mobileTab, setMobileTab] = useState<MobileTab>('guests');
-  const [showMore, setShowMore] = useState(false);
-  const [pickerGuestId, setPickerGuestId] = useState<string | null>(null);
-  const [detailTableId, setDetailTableId] = useState<string | null>(null);
-  const [addGuestsTableId, setAddGuestsTableId] = useState<string | null>(null);
-
-  const showToast = useCallback((message: string, undo = false) => {
-    setToast({ text: message, undo });
-    window.setTimeout(() => setToast(current => (current?.text === message ? null : current)), 5000);
-  }, []);
-
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const sync = () => {
-      document.documentElement.style.setProperty('--vvh', `${viewport.height}px`);
-    };
-    sync();
-    viewport.addEventListener('resize', sync);
-    return () => viewport.removeEventListener('resize', sync);
-  }, []);
-
-  const sheetOpen = Boolean(pickerGuestId || detailTableId || addGuestsTableId || showMore || showImportModal || showResetConfirm);
-  useEffect(() => {
-    document.body.classList.toggle('sheet-open', sheetOpen);
-    return () => document.body.classList.remove('sheet-open');
-  }, [sheetOpen]);
-
-  const handleImport = useCallback((data: WeddingData) => {
-    dispatch({ type: 'IMPORT_DATA', data });
-    setMobileTab('guests');
-    setPickerGuestId(null);
-    setDetailTableId(null);
-  }, [dispatch]);
-
-  const handleReset = useCallback(() => {
-    dispatch({ type: 'RESET_TO_DEMO' });
-    setShowResetConfirm(false);
-    setEditingTableId(null);
-    setPickerGuestId(null);
-    setDetailTableId(null);
-    setMobileTab('guests');
-  }, [dispatch]);
-
-  const tableById = useCallback((tableId: string | null) => (
-    tableId ? state.data.tables.find(table => table.id === tableId) ?? null : null
-  ), [state.data.tables]);
-
-  const seatGuest = useCallback((guestId: string, tableId: string) => {
-    const guest = state.data.guests.find(item => item.id === guestId);
-    const table = tableById(tableId);
-    if (!guest || !table) return;
-    if (!canAssignGuest(guestId, tableId)) {
-      showToast(`${table.name} is full. Pick another table or raise its capacity.`);
-      return;
-    }
-    const previous = tableById(guest.tableId)?.name;
-    dispatch({ type: 'ASSIGN_GUEST', guestId, tableId });
-    setPickerGuestId(null);
-    showToast(previous && previous !== table.name
-      ? `Moved ${guest.name} from ${previous} to ${table.name}`
-      : `Seated ${guest.name} at ${table.name}`, true);
-  }, [canAssignGuest, dispatch, showToast, state.data.guests, tableById]);
-
-  const unseatGuest = useCallback((guestId: string) => {
-    const guest = state.data.guests.find(item => item.id === guestId);
-    if (!guest) return;
-    dispatch({ type: 'UNASSIGN_GUEST', guestId });
-    setPickerGuestId(null);
-    showToast(`Unseated ${guest.name}`, true);
-  }, [dispatch, showToast, state.data.guests]);
-
-  const seatFamily = useCallback((guestId: string, tableId: string) => {
-    const guest = state.data.guests.find(item => item.id === guestId);
-    const table = tableById(tableId);
-    if (!guest?.familyGroup || !table) return;
-    if (!canAssignGroup(guest.familyGroup, tableId)) {
-      showToast(`${table.name} does not have room for ${guest.familyGroup}.`);
-      return;
-    }
-    dispatch({ type: 'ASSIGN_GROUP', groupId: guest.familyGroup, tableId });
-    setPickerGuestId(null);
-    showToast(`Seated ${guest.familyGroup} at ${table.name}`, true);
-  }, [canAssignGroup, dispatch, showToast, state.data.guests, tableById]);
-
-  const seatMany = useCallback((guestIds: string[], tableId: string) => {
-    const table = tableById(tableId);
-    if (!table || guestIds.length === 0) return;
-    const open = table.capacity - getGuestsAtTable(table.id).length;
-    const moving = guestIds.filter(guestId => state.data.guests.find(guest => guest.id === guestId)?.tableId !== tableId);
-    if (moving.length > open) {
-      showToast(`${table.name} only has ${open} open ${open === 1 ? 'seat' : 'seats'}.`);
-      return;
-    }
-    dispatch({ type: 'ASSIGN_GUESTS', guestIds, tableId });
-    setAddGuestsTableId(null);
-    showToast(`Seated ${moving.length} ${moving.length === 1 ? 'guest' : 'guests'} at ${table.name}`, true);
-  }, [dispatch, getGuestsAtTable, showToast, state.data.guests, tableById]);
-
-  const addTable = useCallback(() => {
-    const table = {
-      id: generateId('table'),
-      name: `Table ${state.data.tables.length + 1}`,
-      capacity: 10,
-      x: 200 + (state.data.tables.length % 4) * 140,
-      y: 240 + Math.floor(state.data.tables.length / 4) * 150,
-      type: 'round' as const,
-    };
-    dispatch({ type: 'ADD_TABLE', table });
-    setDetailTableId(table.id);
-    setMobileTab('tables');
-    showToast(`Added ${table.name}`);
-  }, [dispatch, showToast, state.data.tables.length]);
-
-  const backup = () => {
-    downloadFile(exportToJSON(state.data), `wedding-backup-${new Date().toISOString().split('T')[0]}.json`, 'application/json');
-  };
-  const exportCsv = () => {
-    downloadFile(exportSeatingToCSV(state.data), `seating-plan-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
-  };
-
-  const pickerGuest = state.data.guests.find(guest => guest.id === pickerGuestId) ?? null;
-  const detailTable = tableById(detailTableId);
-  const addTableTarget = tableById(addGuestsTableId);
-  const selectedTable = editingTableId ? tableById(editingTableId) : null;
-  const familyMembers = pickerGuest?.familyGroup
-    ? state.data.guests.filter(guest => guest.familyGroup === pickerGuest.familyGroup)
-    : [];
-
-  const notice = toast ? (
-    <div className="toast confirm-toast" role="status" aria-live="polite">
-      <span>{toast.text}</span>
-      {toast.undo && (
-        <button type="button" className="toast-undo" onClick={() => { dispatch({ type: 'UNDO' }); setToast(null); }}>
-          Undo
-        </button>
-      )}
-    </div>
-  ) : null;
-
-  const sheets = (
-    <>
-      {pickerGuest && (
-        <TablePickerSheet
-          guest={pickerGuest}
-          tables={state.data.tables}
-          tableName={tableId => tableById(tableId)?.name ?? null}
-          getCapacity={getTableCapacityInfo}
-          familySize={familyMembers.length}
-          familyFitsTable={tableId => pickerGuest.familyGroup ? canAssignGroup(pickerGuest.familyGroup, tableId) : false}
-          onSeat={tableId => seatGuest(pickerGuest.id, tableId)}
-          onSeatFamily={tableId => seatFamily(pickerGuest.id, tableId)}
-          onUnseat={() => unseatGuest(pickerGuest.id)}
-          onClose={() => setPickerGuestId(null)}
-        />
-      )}
-      {detailTable && !addTableTarget && (
-        <TableDetailSheet
-          table={detailTable}
-          guests={getGuestsAtTable(detailTable.id).sort((a, b) => a.name.localeCompare(b.name))}
-          onUnseat={unseatGuest}
-          onAddGuests={() => setAddGuestsTableId(detailTable.id)}
-          onSave={updates => {
-            dispatch({ type: 'UPDATE_TABLE', tableId: detailTable.id, updates });
-            showToast(`Updated ${updates.name}`);
-          }}
-          onRemove={() => {
-            dispatch({ type: 'REMOVE_TABLE', tableId: detailTable.id });
-            setDetailTableId(null);
-            showToast(`Removed ${detailTable.name}`);
-          }}
-          onClose={() => setDetailTableId(null)}
-        />
-      )}
-      {addTableTarget && (
-        <AddGuestsSheet
-          table={addTableTarget}
-          openSeats={Math.max(0, addTableTarget.capacity - getGuestsAtTable(addTableTarget.id).length)}
-          guests={state.data.guests}
-          onSeat={guestIds => seatMany(guestIds, addTableTarget.id)}
-          onClose={() => setAddGuestsTableId(null)}
-        />
-      )}
-      {showMore && (
-        <OverflowMenu
-          onClose={() => setShowMore(false)}
-          onImport={() => setShowImportModal(true)}
-          onBackup={backup}
-          onExportCsv={exportCsv}
-          onPrint={() => window.print()}
-          onAddTable={addTable}
-          onReset={() => setShowResetConfirm(true)}
-        />
-      )}
-    </>
+export default function App() {
+  const { state, dispatch, fragmentStartup } = useWeddingState();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [chooser, setChooser] = useState<Chooser | null>(null);
+  const [pending, setPending] = useState<WeddingData | null>(
+    fragmentStartup.status === 'confirm' ? fragmentStartup.next : null,
   );
+  const [notice, setNotice] = useState<string | null>(
+    fragmentStartup.status === 'invalid'
+      ? 'That link could not be read. Your saved list was not changed.'
+      : fragmentStartup.status === 'applied'
+        ? 'Guest list loaded on this device.'
+        : null,
+  );
+  const [status, setStatus] = useState('');
+
+  const { data } = state;
+  const query = state.searchQuery.trim().toLowerCase();
+  const unassigned = data.guests
+    .filter(guest => guest.tableId === null)
+    .filter(guest => matchesQuery(guest, query))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  const groups = sortedGroups(data.tables);
+  const chooserGuest = chooser ? data.guests.find(guest => guest.id === chooser.guestId) ?? null : null;
+
+  function offerImport(next: WeddingData) {
+    if (shouldConfirmReplace(data)) {
+      setPending(next);
+      return;
+    }
+    dispatch({ type: 'IMPORT_DATA', data: next });
+    setNotice('Guest list loaded on this device.');
+    setStatus('');
+  }
+
+  function onFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      if (!text || text.length > 2_000_000) {
+        setNotice('That file could not be read. Your saved list was not changed.');
+        return;
+      }
+      const wedding = weddingFromText(text);
+      if (!wedding) {
+        setNotice('That file could not be read. Your saved list was not changed.');
+        return;
+      }
+      offerImport(wedding);
+    };
+    reader.onerror = () => {
+      setNotice('That file could not be read. Your saved list was not changed.');
+    };
+    reader.readAsText(file);
+  }
+
+  function assignTo(guest: Guest, groupId: string) {
+    const group = data.tables.find(table => table.id === groupId);
+    if (!group) return;
+    const count = groupCount(data.guests, groupId);
+    if (isGroupFull(count) || isGroupOverCapacity(count)) return;
+    dispatch({ type: 'ASSIGN_GUEST', guestId: guest.id, tableId: groupId });
+    setChooser(null);
+    setStatus(`Moved ${guest.name} to ${group.name}.`);
+  }
+
+  function returnGuest(guest: Guest) {
+    dispatch({ type: 'UNASSIGN_GUEST', guestId: guest.id });
+    setChooser(null);
+    setStatus(`Returned ${guest.name} to unassigned.`);
+  }
 
   return (
-    <div className={`app ${isMobile ? 'is-mobile' : 'is-desktop'}`}>
-      <header className="app-header">
-        <h1 className="app-title">
-          💒 {state.data.name}
-          {state.data.isDemo && <span className="demo-badge">Demo Data</span>}
-        </h1>
-        {state.data.weddingDate && (
-          <span className="wedding-date">{formatWeddingDate(state.data.weddingDate)}</span>
-        )}
-      </header>
-
-      {isMobile ? (
-        <div className="mobile-toolbar" role="toolbar" aria-label="Actions">
-          <button type="button" className="toolbar-btn" disabled={state.undoStack.length === 0} onClick={() => dispatch({ type: 'UNDO' })}>Undo</button>
-          <button type="button" className="toolbar-btn" disabled={state.redoStack.length === 0} onClick={() => dispatch({ type: 'REDO' })}>Redo</button>
-          <button type="button" className="toolbar-btn" onClick={() => setShowMore(true)} aria-haspopup="dialog">More</button>
+    <main className="app">
+      <header className="topbar">
+        <div>
+          <h1>Group planner</h1>
+          <p className="subhead">
+            {data.name}
+            {data.weddingDate ? ` · ${formatWeddingDate(data.weddingDate)}` : ''}
+            {` · ${data.guests.length - unassignedCount(data)} grouped · ${unassignedCount(data)} unassigned`}
+          </p>
+          <p className="status" role="status">{status || 'Saved on this device.'}</p>
         </div>
-      ) : (
-        <Toolbar
-          state={state}
-          dispatch={dispatch}
-          onImportClick={() => setShowImportModal(true)}
-          onResetClick={() => setShowResetConfirm(true)}
-          onEditTable={() => {
-            if (state.selectedTableId) setEditingTableId(state.selectedTableId);
-          }}
-        />
-      )}
-
-      {state.data.suggestedTables && !state.data.isDemo && (
-        <div className="suggestion-banner" role="status">
-          <div>
-            <strong>Suggested starting layout.</strong> These table sizes are an editable guess, not a record of the venue. Nobody was seated automatically.
-          </div>
-          <button className="toolbar-btn" type="button" onClick={() => dispatch({ type: 'DISMISS_TABLE_SUGGESTION' })}>
-            Got it
+        <div className="toolbar">
+          <button type="button" onClick={() => dispatch({ type: 'UNDO' })} disabled={state.undoStack.length === 0}>
+            Undo
+          </button>
+          <button type="button" onClick={() => dispatch({ type: 'REDO' })} disabled={state.redoStack.length === 0}>
+            Redo
           </button>
         </div>
+      </header>
+
+      {notice && (
+        <div className="notice" role="status">
+          <p>{notice}</p>
+          <button type="button" className="quiet" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
       )}
 
-      {isMobile ? (
-        <main className="mobile-stage">
-          {mobileTab === 'guests' && (
-            <GuestPanel
-              state={state}
-              dispatch={dispatch}
-              guests={filteredGuests}
-              statistics={statistics}
-              onGuest={guestId => { setDetailTableId(null); setAddGuestsTableId(null); setPickerGuestId(guestId); }}
-              onImport={() => setShowImportModal(true)}
-            />
-          )}
-          {mobileTab === 'tables' && (
-            <TablePanel
-              tables={state.data.tables}
-              getCapacity={getTableCapacityInfo}
-              onTable={tableId => { setPickerGuestId(null); setAddGuestsTableId(null); setDetailTableId(tableId); }}
-              onAddTable={addTable}
-            />
-          )}
-          {mobileTab === 'venue' && (
-            <div className="mobile-venue-wrap">
-              <p className="venue-note">Overview only. Tap a table to see who is seated and add guests.</p>
-              <Venue
-                state={state}
-                dispatch={dispatch}
-                getGuestsAtTable={getGuestsAtTable}
-                getTableCapacityInfo={getTableCapacityInfo}
-                canAssignGuest={canAssignGuest}
-                canAssignGroup={canAssignGroup}
-                onEditTable={setDetailTableId}
-                onCapacityWarning={showToast}
-                onInspectTable={tableId => { setPickerGuestId(null); setAddGuestsTableId(null); setDetailTableId(tableId); }}
-              />
-            </div>
-          )}
-        </main>
-      ) : (
-        <>
-          {state.data.isDemo && (
-            <div style={{ padding: '0 20px 20px' }}>
-              <OnboardingPanel onImportClick={() => setShowImportModal(true)} isDemo={state.data.isDemo} />
-            </div>
-          )}
-          <main className="app-layout">
-            <div className="venue-column">
-              <Venue
-                state={state}
-                dispatch={dispatch}
-                getGuestsAtTable={getGuestsAtTable}
-                getTableCapacityInfo={getTableCapacityInfo}
-                canAssignGuest={canAssignGuest}
-                canAssignGroup={canAssignGroup}
-                onEditTable={setEditingTableId}
-                onCapacityWarning={showToast}
-              />
-              {selectedTable && (
-                <TableEditor
-                  table={selectedTable}
-                  dispatch={dispatch}
-                  guestsAtTable={getGuestsAtTable(selectedTable.id).length}
-                  onClose={() => setEditingTableId(null)}
-                />
-              )}
-              <p className="desktop-hint">
-                Select a guest, then a table. You can also drag a guest or a family group onto a table.
-              </p>
-            </div>
-            <Sidebar
-              state={state}
-              dispatch={dispatch}
-              statistics={statistics}
-              filteredUnseatedGuests={filteredUnseatedGuests}
-              getFamilyGroups={getFamilyGroups}
-            />
-          </main>
-        </>
+      {data.isDemo && (
+        <p className="demo-note">
+          These are sample names. Import your list, or open the private link you were sent. Names stay in this browser.
+        </p>
       )}
 
-      {isMobile && <MobileTabBar tab={mobileTab} onChange={setMobileTab} />}
+      <div className="layout">
+        <section className="panel unassigned" aria-labelledby="unassigned-heading">
+          <div className="panel-head">
+            <h2 id="unassigned-heading">Unassigned</h2>
+            <span className="count">{unassignedCount(data)}</span>
+          </div>
+          <input
+            className="search"
+            type="search"
+            value={state.searchQuery}
+            placeholder="Search names"
+            aria-label="Search unassigned names"
+            onChange={event => dispatch({ type: 'SET_SEARCH_QUERY', query: event.target.value })}
+          />
+          {unassigned.length === 0 ? (
+            <p className="empty">{query ? 'No names match that search.' : 'Everyone is in a group.'}</p>
+          ) : (
+            <ul className="name-list">
+              {unassigned.map(guest => (
+                <li key={guest.id}>
+                  <button type="button" className="name-button" onClick={() => setChooser({ guestId: guest.id, mode: 'assign' })}>
+                    <span className="person-name">{guest.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      <PrintView data={state.data} />
-      <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={handleImport} />
-      {notice}
-      {sheets}
+        <section className="panel" aria-labelledby="groups-heading">
+          <div className="panel-head">
+            <h2 id="groups-heading">Groups</h2>
+            <span className="count">{groups.length}</span>
+          </div>
+          <div className="group-list">
+            {groups.map(group => (
+              <GroupCard
+                key={group.id}
+                groupId={group.id}
+                name={group.name}
+                guests={data.guests}
+                query={query}
+                onMove={guestId => setChooser({ guestId, mode: 'move' })}
+                onRemove={guestId => {
+                  const guest = data.guests.find(item => item.id === guestId);
+                  if (guest) returnGuest(guest);
+                }}
+                onRename={nextName => dispatch({ type: 'UPDATE_TABLE', tableId: group.id, updates: { name: nextName } })}
+                onRemoveGroup={() => dispatch({ type: 'REMOVE_TABLE', tableId: group.id })}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className="add-group"
+            onClick={() => dispatch({
+              type: 'ADD_TABLE',
+              table: {
+                id: generateId('group'),
+                name: nextGroupName(data.tables),
+                capacity: GROUP_CAPACITY,
+                x: 0,
+                y: 0,
+                type: 'round',
+              },
+            })}
+          >
+            Add group
+          </button>
+        </section>
+      </div>
 
-      {showResetConfirm && (
-        <div className="modal-overlay" onClick={() => setShowResetConfirm(false)}>
-          <div className="modal" onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="reset-title">
-            <h2 id="reset-title" className="modal-title">Reset to sample data?</h2>
-            <p className="modal-text">
-              This replaces the seating plan in this browser with the fictional sample wedding.
-              {!state.data.isDemo && (
-                <strong style={{ display: 'block', marginTop: '12px', color: '#e74c3c' }}>
-                  Your imported guest list will be removed. Download a backup first if you want to keep it.
-                </strong>
+      <details className="backup">
+        <summary>Backup and import</summary>
+        <div className="backup-actions">
+          <button type="button" className="quiet" onClick={() => fileRef.current?.click()}>Import file</button>
+          <button type="button" className="quiet" onClick={() => downloadFile(exportToJSON(data), 'group-planner-backup.json', 'application/json')}>
+            Download backup
+          </button>
+          <button type="button" className="quiet" onClick={() => downloadFile(exportSeatingToCSV(data), 'groups.csv', 'text/csv')}>
+            Download CSV
+          </button>
+        </div>
+        <p className="hint">A backup stays on this device until you choose a file. Nothing is uploaded.</p>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,text/csv,.json,.csv"
+          hidden
+          onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) onFile(file);
+          }}
+        />
+      </details>
+
+      {chooser && chooserGuest && (
+        <div className="overlay" onClick={() => setChooser(null)}>
+          <div
+            className="sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chooser-title"
+            onClick={event => event.stopPropagation()}
+          >
+            <h2 id="chooser-title">Choose a group</h2>
+            <p className="person-name">{chooserGuest.name}</p>
+            <ul className="chooser-list">
+              {chooser.mode === 'move' && (
+                <li>
+                  <button type="button" className="chooser-option" onClick={() => returnGuest(chooserGuest)}>
+                    <span>Unassigned</span>
+                  </button>
+                </li>
               )}
+              {groups.map(group => {
+                const count = groupCount(data.guests, group.id);
+                const here = chooserGuest.tableId === group.id;
+                const blocked = !here && (isGroupFull(count) || isGroupOverCapacity(count));
+                return (
+                  <li key={group.id}>
+                    <button
+                      type="button"
+                      className="chooser-option"
+                      disabled={blocked || here}
+                      onClick={() => assignTo(chooserGuest, group.id)}
+                    >
+                      <span>{group.name}</span>
+                      <span>{count}/{GROUP_CAPACITY}{blocked ? ' · Full' : ''}{here ? ' · Here' : ''}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button type="button" className="quiet" onClick={() => setChooser(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {pending && (
+        <div className="overlay">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="replace-title">
+            <h2 id="replace-title">Replace the saved list?</h2>
+            <p>
+              People are already assigned in {data.name}. Replacing overwrites those groups with {pending.guests.length} names from the new list.
             </p>
-            <div className="modal-actions">
-              <button className="toolbar-btn" type="button" onClick={() => setShowResetConfirm(false)}>Cancel</button>
-              <button className="toolbar-btn danger" type="button" onClick={handleReset} style={{ background: '#e74c3c', borderColor: '#e74c3c', color: 'white' }}>
-                Reset to sample
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setPending(null)}>Keep saved list</button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  dispatch({ type: 'IMPORT_DATA', data: pending });
+                  setPending(null);
+                  setNotice('Guest list loaded on this device.');
+                  setStatus('');
+                }}
+              >
+                Replace list
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }
 
-export default App;
+function GroupCard({
+  groupId,
+  name,
+  guests,
+  query,
+  onMove,
+  onRemove,
+  onRename,
+  onRemoveGroup,
+}: {
+  groupId: string;
+  name: string;
+  guests: Guest[];
+  query: string;
+  onMove: (guestId: string) => void;
+  onRemove: (guestId: string) => void;
+  onRename: (name: string) => void;
+  onRemoveGroup: () => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const members = guestsInGroup(guests, groupId);
+  const visible = query ? members.filter(guest => matchesQuery(guest, query)) : members;
+  const count = members.length;
+  const over = isGroupOverCapacity(count);
+
+  return (
+    <article className={`group-card${over ? ' is-over' : ''}`}>
+      <div className="panel-head">
+        <h3>{name}</h3>
+        <span className={`count${over ? ' is-over' : ''}`}>{count}/{GROUP_CAPACITY}</span>
+      </div>
+      {over && (
+        <p className="over" role="alert">
+          {count} people in a group of {GROUP_CAPACITY}. Move or remove {count - GROUP_CAPACITY} before adding anyone else.
+        </p>
+      )}
+      {renaming ? (
+        <form
+          className="rename-row"
+          onSubmit={event => {
+            event.preventDefault();
+            const next = draft.trim();
+            if (next) onRename(next);
+            setRenaming(false);
+          }}
+        >
+          <input aria-label={`Rename ${name}`} value={draft} onChange={event => setDraft(event.target.value)} />
+          <button type="submit">Save</button>
+          <button type="button" onClick={() => { setDraft(name); setRenaming(false); }}>Cancel</button>
+        </form>
+      ) : (
+        <div className="group-tools">
+          <button type="button" className="quiet" onClick={() => { setDraft(name); setRenaming(true); }}>Rename</button>
+          {members.length === 0 && (
+            <button type="button" className="quiet" onClick={onRemoveGroup}>Remove group</button>
+          )}
+        </div>
+      )}
+      {visible.length === 0 ? (
+        <p className="empty">{members.length === 0 ? 'No one yet.' : 'No names match that search.'}</p>
+      ) : (
+        <ul className="member-list">
+          {visible.map(guest => (
+            <li key={guest.id} className="person">
+              <span className="person-name">{guest.name}</span>
+              <button type="button" onClick={() => onMove(guest.id)} aria-label={`Move ${guest.name}`}>Move</button>
+              <button type="button" onClick={() => onRemove(guest.id)} aria-label={`Remove ${guest.name}`}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function matchesQuery(guest: Guest, query: string): boolean {
+  if (!query) return true;
+  return guest.name.toLowerCase().includes(query) || (guest.familyGroup ?? '').toLowerCase().includes(query);
+}
+
+function unassignedCount(data: WeddingData): number {
+  return data.guests.filter(guest => guest.tableId === null).length;
+}
+
+function weddingFromText(text: string): WeddingData | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const accepted = acceptGuestPayload(parsed);
+    if (accepted.ok) return accepted.wedding;
+  } catch {
+    // Fall through to CSV.
+  }
+  const csv = parseCSV(text);
+  if (!csv) return null;
+  const accepted = acceptGuestPayload(csv);
+  return accepted.ok ? accepted.wedding : null;
+}

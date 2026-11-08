@@ -1,5 +1,6 @@
 import type { Guest, Table, WeddingData, ImportedData, ImportedGuest } from '../types';
 import { generateId, isValidId } from './ids';
+import { adaptLegacyPlan, createDefaultGroups } from './groups';
 
 export function validateGuest(guest: unknown): guest is Guest {
   if (!guest || typeof guest !== 'object') return false;
@@ -104,36 +105,7 @@ function validateImportedGuest(guest: unknown): guest is ImportedGuest {
 }
 
 export function createDefaultTables(): Table[] {
-  const tables: Table[] = [];
-  
-  tables.push({
-    id: generateId('table'),
-    name: 'Head Table',
-    capacity: 12,
-    x: 400,
-    y: 80,
-    type: 'head',
-  });
-  
-  const tablePositions = [
-    { x: 120, y: 220 }, { x: 300, y: 220 }, { x: 480, y: 220 }, { x: 660, y: 220 },
-    { x: 120, y: 380 }, { x: 300, y: 380 }, { x: 480, y: 380 }, { x: 660, y: 380 },
-    { x: 120, y: 540 }, { x: 300, y: 540 }, { x: 480, y: 540 }, { x: 660, y: 540 },
-    { x: 210, y: 700 }, { x: 570, y: 700 },
-  ];
-  
-  for (let i = 0; i < 14; i++) {
-    tables.push({
-      id: generateId('table'),
-      name: `Table ${i + 1}`,
-      capacity: 10,
-      x: tablePositions[i].x,
-      y: tablePositions[i].y,
-      type: 'round',
-    });
-  }
-  
-  return tables;
+  return createDefaultGroups();
 }
 
 function normalizeImportedGuest(raw: ImportedGuest, tableIds: Set<string>): Guest {
@@ -163,15 +135,14 @@ function normalizeImportedGuest(raw: ImportedGuest, tableIds: Set<string>): Gues
 
 export function convertImportedData(imported: ImportedData): WeddingData {
   const providedTables = imported.tables.filter(validateTable);
-  const suggestedTables = providedTables.length === 0;
-  const tables = suggestedTables ? createDefaultTables() : providedTables;
+  const tables = providedTables.length === 0 ? createDefaultGroups() : providedTables;
   const tableIds = new Set(tables.map(table => table.id));
   const guests = imported.guests.map(guest => normalizeImportedGuest(guest, tableIds));
   const assignments = guests
     .filter(guest => guest.tableId !== null)
     .map(guest => ({ guestId: guest.id, tableId: guest.tableId as string }));
 
-  return {
+  return adaptLegacyPlan({
     id: generateId('wedding'),
     name: imported.source.name.trim() || 'My Wedding',
     weddingDate: imported.weddingDate,
@@ -179,9 +150,8 @@ export function convertImportedData(imported: ImportedData): WeddingData {
     tables,
     assignments,
     isDemo: false,
-    suggestedTables,
     lastModified: Date.now(),
-  };
+  });
 }
 
 export function parseCSV(csvText: string): ImportedData | null {

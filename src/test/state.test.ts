@@ -32,10 +32,10 @@ describe('useWeddingState', () => {
       expect(result.current.state.data.assignments).toContainEqual({ guestId, tableId });
     });
     
-    it('prevents assignment to full table', () => {
+    it('prevents assignment to a full group of 10', () => {
       const { result } = renderHook(() => useWeddingState());
       
-      const table = result.current.state.data.tables.find(t => t.type === 'head')!;
+      const table = result.current.state.data.tables[0];
       const availableGuests = result.current.state.data.guests.filter(g => g.tableId === null);
       
       act(() => {
@@ -130,29 +130,22 @@ describe('useWeddingState', () => {
   describe('ASSIGN_GUESTS', () => {
     it('seats a batch in one undo step and refuses a batch that does not fit', () => {
       const { result } = renderHook(() => useWeddingState());
-      const table = result.current.state.data.tables.find(item => item.capacity === 10)!;
-      const guests = result.current.state.data.guests.slice(0, 3).map(guest => guest.id);
+      const table = result.current.state.data.tables[0];
+      const guests = result.current.state.data.guests.slice(0, 11).map(guest => guest.id);
 
       act(() => {
-        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: guests.slice(0, 2), tableId: table.id });
+        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: guests.slice(0, 10), tableId: table.id });
       });
 
-      expect(result.current.state.data.guests.filter(guest => guest.tableId === table.id)).toHaveLength(2);
+      expect(result.current.state.data.guests.filter(guest => guest.tableId === table.id)).toHaveLength(10);
       expect(result.current.state.undoStack).toHaveLength(1);
-
-      act(() => {
-        result.current.dispatch({ type: 'UPDATE_TABLE', tableId: table.id, updates: { capacity: 2 } });
-      });
 
       const assignments = result.current.state.data.assignments.length;
       act(() => {
-        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: [guests[2]], tableId: table.id });
+        result.current.dispatch({ type: 'ASSIGN_GUESTS', guestIds: [guests[10]], tableId: table.id });
       });
       expect(result.current.state.data.assignments).toHaveLength(assignments);
 
-      act(() => {
-        result.current.dispatch({ type: 'UNDO' });
-      });
       act(() => {
         result.current.dispatch({ type: 'UNDO' });
       });
@@ -261,7 +254,7 @@ describe('useWeddingState', () => {
       
       const table = result.current.state.data.tables.find(t => t.id === tableId);
       expect(table?.name).toBe('VIP Table');
-      expect(table?.capacity).toBe(12);
+      expect(table?.capacity).toBe(10);
     });
   });
   

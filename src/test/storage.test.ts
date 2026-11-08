@@ -78,7 +78,7 @@ describe('storage', () => {
       const csv = exportSeatingToCSV(data);
       const lines = csv.split('\n');
       
-      expect(lines[0]).toBe('Table,Guest Name,Side,RSVP,Is Child,Family Group');
+      expect(lines[0]).toBe('Group,Guest Name,Side,RSVP,Is Child,Family Group');
       expect(lines.length).toBeGreaterThan(1);
     });
     
@@ -108,7 +108,7 @@ describe('storage', () => {
       expect(lines[2]).toContain('Zoe');
     });
     
-    it('shows unseated guests as "Unseated"', () => {
+    it('shows unassigned guests as "Unassigned"', () => {
       const data: WeddingData = {
         id: 'test',
         name: 'Test',
@@ -123,7 +123,7 @@ describe('storage', () => {
       
       const csv = exportSeatingToCSV(data);
       
-      expect(csv).toContain('Unseated,Bob');
+      expect(csv).toContain('Unassigned,Bob');
     });
   });
 });

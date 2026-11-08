@@ -2,6 +2,8 @@ import { useReducer, useEffect, useCallback, useMemo } from 'react';
 import type { WeddingData, AppState, ActionType, Guest } from '../types';
 import { saveToStorage, loadFromStorage } from '../utils/storage';
 import { createSampleWedding } from '../data/sampleData';
+import { GROUP_CAPACITY } from '../utils/groups';
+import { consumeFragmentAtStartup } from '../utils/fragment';
 
 const MAX_UNDO_STACK = 50;
 
@@ -9,24 +11,29 @@ function cloneData(data: WeddingData): WeddingData {
   return JSON.parse(JSON.stringify(data));
 }
 
+function countAt(data: WeddingData, tableId: string): number {
+  return data.guests.reduce((count, guest) => count + (guest.tableId === tableId ? 1 : 0), 0);
+}
+
+function hasRoom(data: WeddingData, tableId: string, incoming: number): boolean {
+  return countAt(data, tableId) + incoming <= GROUP_CAPACITY;
+}
+
 function reducer(state: AppState, action: ActionType): AppState {
   switch (action.type) {
     case 'ASSIGN_GUEST': {
       const { guestId, tableId } = action;
       const table = state.data.tables.find(t => t.id === tableId);
-      if (!table) return state;
-      
-      const currentAssignments = state.data.assignments.filter(a => a.tableId === tableId);
-      if (currentAssignments.length >= table.capacity) {
-        return state;
-      }
+      const guest = state.data.guests.find(item => item.id === guestId);
+      if (!table || !guest || guest.tableId === tableId) return state;
+      if (!hasRoom(state.data, tableId, 1)) return state;
       
       const newData = cloneData(state.data);
       newData.assignments = newData.assignments.filter(a => a.guestId !== guestId);
       newData.assignments.push({ guestId, tableId });
       
-      const guest = newData.guests.find(g => g.id === guestId);
-      if (guest) guest.tableId = tableId;
+      const moved = newData.guests.find(item => item.id === guestId);
+      if (moved) moved.tableId = tableId;
       
       newData.lastModified = Date.now();
       
@@ -47,8 +54,7 @@ function reducer(state: AppState, action: ActionType): AppState {
         const guest = state.data.guests.find(item => item.id === guestId);
         return guest !== undefined && guest.tableId !== table.id;
       });
-      const alreadySeated = state.data.guests.filter(guest => guest.tableId === table.id).length;
-      if (guestsToMove.length === 0 || alreadySeated + guestsToMove.length > table.capacity) {
+      if (guestsToMove.length === 0 || !hasRoom(state.data, table.id, guestsToMove.length)) {
         return state;
       }
 
@@ -96,15 +102,8 @@ function reducer(state: AppState, action: ActionType): AppState {
       
       const groupMembers = state.data.guests.filter(g => g.familyGroup === groupId);
       if (groupMembers.length === 0) return state;
-      
-      const currentAssignments = state.data.assignments.filter(a => a.tableId === tableId);
-      const nonGroupAtTable = currentAssignments.filter(a => 
-        !groupMembers.some(m => m.id === a.guestId)
-      );
-      
-      if (nonGroupAtTable.length + groupMembers.length > table.capacity) {
-        return state;
-      }
+      const incoming = groupMembers.filter(member => member.tableId !== tableId).length;
+      if (incoming === 0 || !hasRoom(state.data, tableId, incoming)) return state;
       
       const newData = cloneData(state.data);
       
@@ -128,7 +127,7 @@ function reducer(state: AppState, action: ActionType): AppState {
     
     case 'ADD_TABLE': {
       const newData = cloneData(state.data);
-      newData.tables.push(action.table);
+      newData.tables.push({ ...action.table, capacity: GROUP_CAPACITY, type: 'round' });
       newData.lastModified = Date.now();
       
       return {
@@ -163,7 +162,12 @@ function reducer(state: AppState, action: ActionType): AppState {
       const newData = cloneData(state.data);
       const table = newData.tables.find(t => t.id === action.tableId);
       if (table) {
-        Object.assign(table, action.updates);
+        if (typeof action.updates.name === 'string') {
+          const name = action.updates.name.trim().slice(0, 40);
+          if (name) table.name = name;
+        }
+        table.capacity = GROUP_CAPACITY;
+        table.type = 'round';
       }
       newData.lastModified = Date.now();
       
@@ -295,6 +299,7 @@ function reducer(state: AppState, action: ActionType): AppState {
 }
 
 function createInitialState(): AppState {
+  consumeFragmentAtStartup();
   return {
     data: loadFromStorage(),
     selectedGuestId: null,
@@ -309,6 +314,7 @@ function createInitialState(): AppState {
 }
 
 export function useWeddingState() {
+  const fragmentStartup = consumeFragmentAtStartup();
   const [state, dispatch] = useReducer(reducer, null, createInitialState);
   
   useEffect(() => {
@@ -388,14 +394,15 @@ export function useWeddingState() {
     return state.data.guests.filter(g => g.tableId === tableId);
   }, [state.data.guests]);
   
-  const getTableCapacityInfo = useCallback((tableId: string): { seated: number; capacity: number; isFull: boolean } => {
+  const getTableCapacityInfo = useCallback((tableId: string): { seated: number; capacity: number; isFull: boolean; isOver: boolean } => {
     const table = state.data.tables.find(t => t.id === tableId);
-    if (!table) return { seated: 0, capacity: 0, isFull: true };
+    if (!table) return { seated: 0, capacity: 0, isFull: true, isOver: false };
     const seated = state.data.guests.filter(g => g.tableId === tableId).length;
     return {
       seated,
-      capacity: table.capacity,
-      isFull: seated >= table.capacity,
+      capacity: GROUP_CAPACITY,
+      isFull: seated >= GROUP_CAPACITY,
+      isOver: seated > GROUP_CAPACITY,
     };
   }, [state.data.tables, state.data.guests]);
   
@@ -403,8 +410,8 @@ export function useWeddingState() {
     const info = getTableCapacityInfo(tableId);
     const guest = state.data.guests.find(g => g.id === guestId);
     if (!guest) return false;
-    if (guest.tableId === tableId) return true;
-    return !info.isFull;
+    if (guest.tableId === tableId) return false;
+    return !info.isFull && !info.isOver;
   }, [state.data.guests, getTableCapacityInfo]);
 
   const canAssignGroup = useCallback((groupId: string, tableId: string): boolean => {
@@ -414,7 +421,7 @@ export function useWeddingState() {
     if (members.length === 0) return false;
     const memberIds = new Set(members.map(member => member.id));
     const othersAtTable = state.data.guests.filter(g => g.tableId === tableId && !memberIds.has(g.id)).length;
-    return othersAtTable + members.length <= table.capacity;
+    return othersAtTable + members.length <= GROUP_CAPACITY;
   }, [state.data.guests, state.data.tables]);
   
   const getFamilyGroups = useCallback((): Map<string, Guest[]> => {
@@ -432,6 +439,7 @@ export function useWeddingState() {
   return {
     state,
     dispatch,
+    fragmentStartup,
     statistics,
     filteredGuests,
     filteredUnseatedGuests,
